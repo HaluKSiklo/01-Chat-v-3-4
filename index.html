@@ -3,12 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Binary Input Pad - Dual Serverless WebRTC</title>
+<title>Binary Input Pad - Auto-Connect WebRTC</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
   html, body { height: 100%; }
-
   body {
     background: #fff;
     color: #111;
@@ -28,12 +26,7 @@
     padding: 16px;
     gap: 16px;
   }
-
-  @media (max-width: 600px) {
-    #split-container {
-      flex-direction: column;
-    }
-  }
+  @media (max-width: 600px) { #split-container { flex-direction: column; } }
 
   .pad-pane {
     flex: 1;
@@ -45,23 +38,9 @@
     background: #fafafa;
     overflow: hidden;
   }
-
-  #my-pane {
-    background: #fff;
-    border-color: #ddd;
-  }
-
-  .pane-title {
-    font-size: 11px;
-    color: #888;
-    margin-bottom: 8px;
-    font-weight: bold;
-    letter-spacing: 0.05em;
-  }
-
-  #my-pane .pane-title {
-    color: #111;
-  }
+  #my-pane { background: #fff; border-color: #ddd; }
+  .pane-title { font-size: 11px; color: #888; margin-bottom: 8px; font-weight: bold; letter-spacing: 0.05em; }
+  #my-pane .pane-title { color: #111; }
 
   .output {
     font-size: 24px;
@@ -74,10 +53,8 @@
     white-space: pre-wrap;
     padding-bottom: 4px;
   }
-
   .output.empty { color: #c9c9c9; }
 
-  /* 変化するテキスト要素内のカーソル */
   .fake-cursor {
     display: inline-block;
     width: 2px;
@@ -88,11 +65,7 @@
     margin-right: 1px;
     animation: blink 1s step-end infinite;
   }
-
-  @keyframes blink {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0; }
-  }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 
   .conversions {
     font-size: 11px;
@@ -112,7 +85,6 @@
     gap: 0;
     flex-wrap: wrap;
   }
-
   #toolbar button {
     flex: 1;
     padding: 12px;
@@ -125,13 +97,12 @@
     cursor: pointer;
     letter-spacing: 0.04em;
     transition: background 0.12s ease;
-    min-width: 100px;
+    min-width: 90px;
   }
+  #toolbar button:hover:not(:disabled) { background: #efefef; }
+  #toolbar button:active:not(:disabled) { background: #e0e0e0; }
+  #toolbar button:disabled { color: #bbb; background: #fdfdfd; cursor: not-allowed; }
 
-  #toolbar button:hover { background: #efefef; }
-  #toolbar button:active { background: #e0e0e0; }
-
-  /* 設定チェックボックス・入力ラップ */
   .setting-wrap {
     display: flex;
     align-items: center;
@@ -144,105 +115,35 @@
     background: #f1f1f1;
     cursor: default;
   }
-  .setting-wrap input[type="checkbox"] {
-    cursor: pointer;
-  }
-  .setting-wrap input[type="number"] {
-    width: 42px;
-    padding: 2px 4px;
-    font-family: inherit;
-    font-size: 11px;
-    border: 1px solid #ccc;
-    text-align: center;
-    cursor: text;
-  }
+  .setting-wrap input[type="checkbox"] { cursor: pointer; }
+  .setting-wrap input[type="number"] { width: 42px; padding: 2px 4px; font-family: inherit; font-size: 11px; border: 1px solid #ccc; text-align: center; cursor: text; }
+  .setting-wrap select { font-family: inherit; font-size: 11px; padding: 2px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
 
-  #hint {
-    font-size: 10px;
-    color: #999;
-    padding: 6px 16px;
-    background: #f8f8f8;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 14px;
-    letter-spacing: 0.03em;
-    border-top: 1px solid #eee;
-  }
+  #hint { font-size: 10px; color: #999; padding: 6px 16px; background: #f8f8f8; display: flex; flex-wrap: wrap; gap: 14px; letter-spacing: 0.03em; border-top: 1px solid #eee; }
 
-  /* ── 折り畳み式 P2P セクション ───────────────── */
-  #p2p-accordion {
+  /* ── 自動P2P接続セクション ───────────────── */
+  #p2p-section {
     border-top: 1px solid #ddd;
     background: #fcfcfc;
-  }
-
-  #p2p-toggle {
-    width: 100%;
-    padding: 10px 12px;
-    background: #f1f1f1;
-    text-align: left;
-    font-weight: bold;
-    font-size: 12px;
-    border: none;
-    border-right: none !important;
-    cursor: pointer;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-  #p2p-toggle:hover { background: #e8e8e8; }
-
-  #p2p-content {
     padding: 12px;
     display: flex;
     flex-direction: column;
     gap: 8px;
-    border-top: 1px solid #ddd;
   }
-
-  .collapsed { display: none !important; }
-
-  .label {
-    font-size: 11px;
-    color: #666;
-    letter-spacing: 0.04em;
-  }
-
-  .inline-row {
-    display: flex;
-    gap: 8px;
-  }
+  .label { font-size: 11px; color: #666; letter-spacing: 0.04em; }
+  .inline-row { display: flex; gap: 8px; }
   .inline-row > * { flex: 1; }
-
-  .button-row {
-    display: flex;
-    border: 1px solid #ddd;
-    background: #f8f8f8;
-  }
-  .button-row button { border-right: 1px solid #ddd; padding: 10px; font-size: 12px; cursor: pointer; background: transparent; border-top:none; border-left:none; border-bottom:none; flex:1;}
-  .button-row button:last-child { border-right: none; }
-  .button-row button:hover { background: #efefef; }
-
-  #p2p-content textarea,
-  #p2p-content input {
+  #p2p-section input {
     width: 100%;
     font-family: inherit;
-    font-size: 12px;
+    font-size: 13px;
+    font-weight: bold;
     padding: 8px;
-    border: 1px solid #d9d9d9;
+    border: 1px solid #ccc;
     background: #fff;
     color: #111;
     cursor: text;
   }
-
-  #p2p-content textarea {
-    min-height: 70px;
-    resize: vertical;
-    user-select: text;
-  }
-
-  #p2p-content input { user-select: text; }
-
   #status {
     font-size: 11px;
     padding: 8px;
@@ -251,27 +152,6 @@
     white-space: pre-wrap;
     line-height: 1.4;
     color: #444;
-  }
-
-  #instructions {
-    font-size: 11px;
-    color: #666;
-    line-height: 1.6;
-    border: 1px dashed #ddd;
-    padding: 10px;
-    background: #fff;
-    user-select: text;
-  }
-
-  .pill {
-    display: inline-block;
-    border: 1px solid #ddd;
-    border-radius: 999px;
-    padding: 1px 8px;
-    font-size: 10px;
-    color: #555;
-    margin-right: 6px;
-    background: #fafafa;
   }
 </style>
 </head>
@@ -296,11 +176,18 @@
   <button id="btn-newline">改行 (Enter)</button>
   <button id="btn-clear">全消去</button>
   <button id="btn-copy">自分の入力をコピー</button>
+  <button id="btn-copy-peer" disabled>相手の入力をコピー</button>
   
   <div class="setting-wrap" id="wrap-autowrap">
     <input type="checkbox" id="chk-autowrap">
     <input type="number" id="num-wrapcount" value="8" min="1" max="999">
     <label for="chk-autowrap" style="cursor:pointer;">文字で自動改行</label>
+    <select id="sel-wrapcode">
+      <option value="nl">通常の改行 (\n)</option>
+      <option value="empty-line">空行を挿入 (\n\n)</option>
+      <option value="space">半角スペース挿入 + \n</option>
+      <option value="comma">カンマ[,]挿入 + \n</option>
+    </select>
   </div>
 
   <div class="setting-wrap" id="wrap-confirm">
@@ -313,51 +200,20 @@
   <span>【画面の空白どこでも】 左クリック → 1挿入 / 右クリック → 0挿入</span>
   <span>【キーボード】 0 や 1 キー → 数値挿入</span>
   <span>【カーソル移動】 ← → ↑ ↓ キー</span>
-  <span>【その他】 Enter → 改行 / Backspace・Delete → 削除</span>
 </div>
 
-<div id="p2p-accordion">
-  <button id="p2p-toggle">▼ 接続設定・コード交換 (クリックで開閉)</button>
-  <div id="p2p-content">
-    <div class="inline-row">
-      <div>
-        <div class="label">自分のID</div>
-        <input id="myID" placeholder="例: 10101101">
-      </div>
-      <div>
-        <div class="label">相手のID</div>
-        <input id="peerID" placeholder="例: 11001010">
-      </div>
-    </div>
-
-    <div class="button-row">
-      <button id="saveID">ID保存</button>
-      <button id="makeOffer">接続コード生成（発信）</button>
-      <button id="apply">相手コード適用</button>
-      <button id="copyLocal">生成コードをコピー</button>
-      <button id="resetConnection">接続リセット</button>
-    </div>
-
+<div id="p2p-section">
+  <div class="inline-row">
     <div>
-      <div class="label">自分が相手へ渡すコード <span style="color:#d9534f; font-size:10px;">※生成後、2〜3秒待ってからコピーしてください</span></div>
-      <textarea id="local" readonly placeholder="ここに offer / answer コードが生成されます"></textarea>
+      <div class="label">自分のID (0と1で指定)</div>
+      <input id="myID" placeholder="例: 001">
     </div>
-
     <div>
-      <div class="label">相手から受け取ったコード</div>
-      <textarea id="remote" placeholder="相手のコードをここへ貼り付けてから『相手コード適用』"></textarea>
-    </div>
-
-    <div id="status">未接続</div>
-
-    <div id="instructions">
-      <span class="pill">手順 1</span> 発信側が「相手のID」を入れて「接続コード生成（発信）」<br>
-      <span class="pill">手順 2</span> 生成コードを相手へ送る<br>
-      <span class="pill">手順 3</span> 受信側がそのコードを貼り付けて「相手コード適用」<br>
-      <span class="pill">手順 4</span> 受信側に生成された返答コードを、発信側が貼り付けて「相手コード適用」<br>
-      <span class="pill">完了</span> 接続成功後はリアルタイムに双方向同期が開始されます
+      <div class="label">接続したい相手のID (0と1で指定)</div>
+      <input id="peerID" placeholder="例: 010">
     </div>
   </div>
+  <div id="status">IDを入力してください。お互いのIDがクロスで一致すると自動接続します。</div>
 </div>
 
 <script>
@@ -367,355 +223,326 @@
   // ── DOM エレメント ───────────────────────────
   const myOutput = document.getElementById('my-output');
   const myConversions = document.getElementById('my-conversions');
-
   const peerOutput = document.getElementById('peer-output');
   const peerConversions = document.getElementById('peer-conversions');
 
   const myIDBox = document.getElementById('myID');
   const peerIDInput = document.getElementById('peerID');
-  const localBox = document.getElementById('local');
-  const remoteBox = document.getElementById('remote');
   const statusBox = document.getElementById('status');
-  
-  const p2pToggle = document.getElementById('p2p-toggle');
-  const p2pContent = document.getElementById('p2p-content');
-
-  const saveIDBtn = document.getElementById('saveID');
-  const makeOfferBtn = document.getElementById('makeOffer');
-  const applyBtn = document.getElementById('apply');
-  const copyLocalBtn = document.getElementById('copyLocal');
-  const resetConnectionBtn = document.getElementById('resetConnection');
   
   const backspaceBtn = document.getElementById('btn-backspace');
   const newlineBtn = document.getElementById('btn-newline');
   const clearBtn = document.getElementById('btn-clear');
   const copyBtn = document.getElementById('btn-copy');
+  const copyPeerBtn = document.getElementById('btn-copy-peer');
   
   const chkConfirm = document.getElementById('chk-confirm');
   const wrapConfirm = document.getElementById('wrap-confirm');
-  
   const chkAutowrap = document.getElementById('chk-autowrap');
   const numWrapcount = document.getElementById('num-wrapcount');
+  const selWrapcode = document.getElementById('sel-wrapcode');
   const wrapAutowrap = document.getElementById('wrap-autowrap');
 
   // ── 状態管理 ─────────────────────────────────
-  let myBits = [];      // 自分の入力配列 (0, 1, '\n')
-  let myCursorIdx = 0;  // 自分のカーソル位置 (0 〜 myBits.length)
-  let peerBits = [];    // 相手の入力配列
+  let myBits = [];
+  let myCursorIdx = 0;
+  let peerBits = [];
 
   let peer = null;
   let channel = null;
-  let role = null;
+  let sseSource = null; // 自動中継用
 
-  const STORAGE_KEY_ID = 'binaryPad.myId';
+  const STORAGE_KEY_MY_ID = 'binaryPad.myIdAuto';
+  const STORAGE_KEY_PEER_ID = 'binaryPad.peerIdAuto';
   const STORAGE_KEY_BITS = 'binaryPad.myBits';
   const STORAGE_KEY_CONFIRM = 'binaryPad.needConfirm';
   const STORAGE_KEY_AUTOWRAP_ON = 'binaryPad.autoWrapOn';
   const STORAGE_KEY_AUTOWRAP_VAL = 'binaryPad.autoWrapVal';
-  
-  const APP_TAG = 'binary-pad-webrtc-dual';
-  const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
+  const STORAGE_KEY_AUTOWRAP_CODE = 'binaryPad.autoWrapCode';
+
+  // 公開されている中継中継サービスを利用 (WebRTCシグナリング用)
+  const SIGNALING_URL = 'https://broker.anywhere.co.id/signal'; 
 
   // ── 初期化 ───────────────────────────────────
-  initializeIds();
   restoreBits();
   restoreSettings();
   renderMyPane();
   renderPeerPane();
-  updateStatus('未接続');
+  startSignalingListener(); // 自動接続待ち受け開始
 
-  p2pToggle.addEventListener('click', (event) => {
-    event.stopPropagation();
-    p2pContent.classList.toggle('collapsed');
-    p2pToggle.textContent = p2pContent.classList.contains('collapsed') 
-      ? '▼ 接続設定・コード交換 (クリックで開く)' 
-      : '▲ 接続設定・コード交換 (クリックで閉じる)';
-  });
+  peerIDInput.addEventListener('input', (e) => { sanitizeBinaryInput(e); localStorage.setItem(STORAGE_KEY_PEER_ID, e.target.value); startSignalingListener(); });
+  myIDBox.addEventListener('input', (e) => { sanitizeBinaryInput(e); localStorage.setItem(STORAGE_KEY_MY_ID, e.target.value); startSignalingListener(); });
 
-  peerIDInput.addEventListener('input', sanitizeBinaryInput);
-  myIDBox.addEventListener('input', sanitizeBinaryInput);
-
-  // 設定変更時の保存、およびツールバー領域クリック時の入力判定ブロック
   chkConfirm.addEventListener('change', () => localStorage.setItem(STORAGE_KEY_CONFIRM, chkConfirm.checked ? '1' : '0'));
   wrapConfirm.addEventListener('click', (e) => e.stopPropagation());
-  
   chkAutowrap.addEventListener('change', () => localStorage.setItem(STORAGE_KEY_AUTOWRAP_ON, chkAutowrap.checked ? '1' : '0'));
   numWrapcount.addEventListener('input', () => {
     let val = parseInt(numWrapcount.value, 10);
     if (isNaN(val) || val < 1) val = 1;
     localStorage.setItem(STORAGE_KEY_AUTOWRAP_VAL, val.toString());
   });
+  selWrapcode.addEventListener('change', () => localStorage.setItem(STORAGE_KEY_AUTOWRAP_CODE, selWrapcode.value));
   wrapAutowrap.addEventListener('click', (e) => e.stopPropagation());
 
-  // ── キーボードイベント（入力・移動・削除） ────────
+  // ── キーボード・クリック処理 (既存維持) ──────
   window.addEventListener('keydown', (event) => {
     if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') return;
-
-    if (event.key === '0') {
-      event.preventDefault();
-      insertBit(0);
-    } else if (event.key === '1') {
-      event.preventDefault();
-      insertBit(1);
-    } else if (event.key === 'ArrowLeft') {
-      event.preventDefault();
-      if (myCursorIdx > 0) { myCursorIdx--; renderMyPane(); }
-    } else if (event.key === 'ArrowRight') {
-      event.preventDefault();
-      if (myCursorIdx < myBits.length) { myCursorIdx++; renderMyPane(); }
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      moveVertical(-1);
-    } else if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      moveVertical(1);
-    } else if (event.key === 'Backspace') {
-      event.preventDefault();
-      executeBackspace();
-    } else if (event.key === 'Delete') {
-      event.preventDefault();
-      executeDelete();
-    } else if (event.key === 'Enter') {
-      event.preventDefault();
-      insertBit('\n');
-    }
+    if (event.key === '0') { event.preventDefault(); insertBit(0); }
+    else if (event.key === '1') { event.preventDefault(); insertBit(1); }
+    else if (event.key === 'ArrowLeft') { event.preventDefault(); if (myCursorIdx > 0) { myCursorIdx--; renderMyPane(); } }
+    else if (event.key === 'ArrowRight') { event.preventDefault(); if (myCursorIdx < myBits.length) { myCursorIdx++; renderMyPane(); } }
+    else if (event.key === 'ArrowUp') { event.preventDefault(); moveVertical(-1); }
+    else if (event.key === 'ArrowDown') { event.preventDefault(); moveVertical(1); }
+    else if (event.key === 'Backspace') { event.preventDefault(); executeBackspace(); }
+    else if (event.key === 'Delete') { event.preventDefault(); executeDelete(); }
+    else if (event.key === 'Enter') { event.preventDefault(); insertBit('\n'); }
   });
 
-  // ── 画面上のどこでもクリックイベント ───────────
-  window.addEventListener('click', (event) => {
-    if (isIgnoredElement(event.target)) return;
-    insertBit(1);
-  });
+  window.addEventListener('click', (event) => { if (isIgnoredElement(event.target)) return; insertBit(1); });
+  window.addEventListener('contextmenu', (event) => { if (isIgnoredElement(event.target)) return; event.preventDefault(); insertBit(0); });
+  function isIgnoredElement(target) { return target.tagName === 'BUTTON' || target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'OPTION' || target.closest('.setting-wrap') !== null; }
 
-  window.addEventListener('contextmenu', (event) => {
-    if (isIgnoredElement(event.target)) return;
-    event.preventDefault();
-    insertBit(0);
-  });
-
-  function isIgnoredElement(target) {
-    return target.tagName === 'BUTTON' || 
-           target.tagName === 'INPUT' || 
-           target.tagName === 'TEXTAREA' || 
-           target.id === 'p2p-toggle' ||
-           target.closest('.setting-wrap') !== null;
-  }
-
-  // ── ツールバーのボタン処理 ──────────────────
   backspaceBtn.addEventListener('click', (e) => { e.stopPropagation(); executeBackspace(); });
   newlineBtn.addEventListener('click', (e) => { e.stopPropagation(); insertBit('\n'); });
   clearBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (chkConfirm.checked) {
-      if (!confirm('自分の入力をすべて消去しますか？')) return;
-    }
-    myBits = [];
-    myCursorIdx = 0;
-    saveBits();
-    renderMyPane();
-    broadcastState();
+    if (chkConfirm.checked && !confirm('自分の入力をすべて消去しますか？')) return;
+    myBits = []; myCursorIdx = 0; saveBits(); renderMyPane(); broadcastState();
   });
-  copyBtn.addEventListener('click', async (e) => {
-    e.stopPropagation();
-    if (!myBits.length) return;
-    await copyText(myBits.join(''), copyBtn, '✓ コピー済み');
-  });
+  copyBtn.addEventListener('click', async (e) => { e.stopPropagation(); if (myBits.length) await copyText(myBits.join(''), copyBtn, '✓ コピー済み'); });
+  copyPeerBtn.addEventListener('click', async (e) => { e.stopPropagation(); if (peerBits.length) await copyText(peerBits.join(''), copyPeerBtn, '✓ 相手の入力をコピーした'); });
 
-  // ── データ操作ロジック ────────────────────────
+  // ── データロジック ──────────────────────────
   function insertBit(val) {
     myBits.splice(myCursorIdx, 0, val);
     myCursorIdx++;
-
-    // 自動改行チェック（0または1が挿入されたときのみ判定、改行自体の挿入時は無視）
-    if (val !== '\n' && chkAutowrap.checked) {
+    if ((val === 0 || val === 1) && chkAutowrap.checked) {
       const limit = parseInt(numWrapcount.value, 10) || 8;
       if (getCurrentLineLength() > limit) {
-        // 現在位置の一歩手前（今入れたビットの直前）に改行を挟む
-        myCursorIdx--; 
-        myBits.splice(myCursorIdx, 0, '\n');
-        myCursorIdx += 2; // 改行とビットを飛び越えて次に進める
+        myCursorIdx--;
+        const mode = selWrapcode.value;
+        if (mode === 'empty-line') { myBits.splice(myCursorIdx, 0, '\n', '\n'); myCursorIdx += 3; }
+        else if (mode === 'space') { myBits.splice(myCursorIdx, 0, ' ', '\n'); myCursorIdx += 3; }
+        else if (mode === 'comma') { myBits.splice(myCursorIdx, 0, ',', '\n'); myCursorIdx += 3; }
+        else { myBits.splice(myCursorIdx, 0, '\n'); myCursorIdx += 2; }
       }
     }
-
-    saveBits();
-    renderMyPane();
-    broadcastState();
+    saveBits(); renderMyPane(); broadcastState();
   }
 
-  function executeBackspace() {
-    if (myCursorIdx === 0) return;
-    myBits.splice(myCursorIdx - 1, 1);
-    myCursorIdx--;
-    saveBits();
-    renderMyPane();
-    broadcastState();
-  }
-
-  function executeDelete() {
-    if (myCursorIdx === myBits.length) return;
-    myBits.splice(myCursorIdx, 1);
-    saveBits();
-    renderMyPane();
-    broadcastState();
-  }
-
-  // 現在のカーソル位置がある「行」の文字数を数える
+  function executeBackspace() { if (myCursorIdx === 0) return; myBits.splice(myCursorIdx - 1, 1); myCursorIdx--; saveBits(); renderMyPane(); broadcastState(); }
+  function executeDelete() { if (myCursorIdx === myBits.length) return; myBits.splice(myCursorIdx, 1); saveBits(); renderMyPane(); broadcastState(); }
   function getCurrentLineLength() {
     let len = 0;
-    // カーソル位置から左に向かって最初の改行か先頭まで走査
-    for (let i = myCursorIdx - 1; i >= 0; i--) {
-      if (myBits[i] === '\n') break;
-      len++;
-    }
-    // カーソル位置から右に向かって最初の改行か末尾まで走査
-    for (let i = myCursorIdx; i < myBits.length; i++) {
-      if (myBits[i] === '\n') break;
-      len++;
-    }
+    for (let i = myCursorIdx - 1; i >= 0; i--) { if (myBits[i] === '\n') break; if (myBits[i] === 0 || myBits[i] === 1) len++; }
+    for (let i = myCursorIdx; i < myBits.length; i++) { if (myBits[i] === '\n') break; if (myBits[i] === 0 || myBits[i] === 1) len++; }
     return len;
   }
-
-  // 行移動のロジック
   function moveVertical(direction) {
-    const lines = myBits.join('').split('\n');
-    let accumulated = 0;
-    let currentLineIdx = 0;
-    let currentChIdx = 0;
-
+    const lines = myBits.join('').split('\n'); let accumulated = 0; let currentLineIdx = 0; let currentChIdx = 0;
     for (let i = 0; i < lines.length; i++) {
-      const start = accumulated;
-      const end = accumulated + lines[i].length;
-      if (myCursorIdx >= start && myCursorIdx <= end) {
-        currentLineIdx = i;
-        currentChIdx = myCursorIdx - start;
-        break;
-      }
+      const start = accumulated; const end = accumulated + lines[i].length;
+      if (myCursorIdx >= start && myCursorIdx <= end) { currentLineIdx = i; currentChIdx = myCursorIdx - start; break; }
       accumulated += lines[i].length + 1;
     }
-
-    const targetLineIdx = currentLineIdx + direction;
-    if (targetLineIdx < 0 || targetLineIdx >= lines.length) return;
-
-    let targetGlobalIdx = 0;
-    for (let i = 0; i < targetLineIdx; i++) {
-      targetGlobalIdx += lines[i].length + 1;
-    }
-    const targetLineLen = lines[targetLineIdx].length;
-    targetGlobalIdx += Math.min(currentChIdx, targetLineLen);
-
-    myCursorIdx = targetGlobalIdx;
-    renderMyPane();
+    const targetLineIdx = currentLineIdx + direction; if (targetLineIdx < 0 || targetLineIdx >= lines.length) return;
+    let targetGlobalIdx = 0; for (let i = 0; i < targetLineIdx; i++) { targetGlobalIdx += lines[i].length + 1; }
+    myCursorIdx = targetGlobalIdx + Math.min(currentChIdx, lines[targetLineIdx].length); renderMyPane();
   }
 
-  // ── 描画処理 ─────────────────────────────────
+  // ── 描画 ─────────────────────────────────────
   function renderMyPane() {
     myOutput.innerHTML = '';
-    
     if (myBits.length === 0) {
-      myOutput.classList.add('empty');
-      const cursorSpan = document.createElement('span');
-      cursorSpan.className = 'fake-cursor';
-      myOutput.appendChild(cursorSpan);
+      myOutput.classList.add('empty'); const cursorSpan = document.createElement('span'); cursorSpan.className = 'fake-cursor'; myOutput.appendChild(cursorSpan);
     } else {
       myOutput.classList.remove('empty');
-      const textBefore = myBits.slice(0, myCursorIdx).join('');
-      const textAfter = myBits.slice(myCursorIdx).join('');
-
-      const beforeNode = document.createTextNode(textBefore);
-      const cursorSpan = document.createElement('span');
-      cursorSpan.className = 'fake-cursor';
-      const afterNode = document.createTextNode(textAfter);
-
-      myOutput.appendChild(beforeNode);
-      myOutput.appendChild(cursorSpan);
-      myOutput.appendChild(afterNode);
+      myOutput.appendChild(document.createTextNode(myBits.slice(0, myCursorIdx).join('')));
+      const cursorSpan = document.createElement('span'); cursorSpan.className = 'fake-cursor'; myOutput.appendChild(cursorSpan);
+      myOutput.appendChild(document.createTextNode(myBits.slice(myCursorIdx).join('')));
     }
-    
-    updateConversions(myBits, myConversions);
-    myOutput.scrollTop = myOutput.scrollHeight;
+    updateConversions(myBits, myConversions); myOutput.scrollTop = myOutput.scrollHeight;
   }
-
   function renderPeerPane() {
     peerOutput.innerHTML = '';
-    if (peerBits.length === 0) {
-      peerOutput.classList.add('empty');
-      peerOutput.textContent = '（相手の入力待ち）';
-    } else {
-      peerOutput.classList.remove('empty');
-      peerOutput.textContent = peerBits.join('');
-    }
-    updateConversions(peerBits, peerConversions);
-    peerOutput.scrollTop = peerOutput.scrollHeight;
+    if (peerBits.length === 0) { peerOutput.classList.add('empty'); peerOutput.textContent = '（相手の入力待ち）'; copyPeerBtn.disabled = true; }
+    else { peerOutput.classList.remove('empty'); peerOutput.textContent = peerBits.join(''); copyPeerBtn.disabled = false; }
+    updateConversions(peerBits, peerConversions); peerOutput.scrollTop = peerOutput.scrollHeight;
   }
-
   function updateConversions(bitArray, convEl) {
-    const pureBinary = bitArray.join('').replace(/\n/g, '');
-    if (!pureBinary) {
-      convEl.innerHTML = 'dec: 0 &nbsp; hex: 0x0 &nbsp; bits: 0';
-      return;
-    }
+    const pureBinary = bitArray.join('').replace(/[^01]/g, '');
+    if (!pureBinary) { convEl.innerHTML = 'dec: 0 &nbsp; hex: 0x0 &nbsp; bits: 0'; return; }
     try {
       const val = BigInt('0b' + pureBinary);
-      const decStr = val.toString(10).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-      const hexStr = '0x' + val.toString(16).toUpperCase();
-      convEl.innerHTML = `dec: ${decStr} &nbsp; hex: ${hexStr} &nbsp; bits: ${pureBinary.length}`;
-    } catch {
-      convEl.innerHTML = '変換不可';
-    }
+      convEl.innerHTML = `dec: ${val.toString(10).replace(/\B(?=(\d{3})+(?!\d))/g, ',')} &nbsp; hex: 0x${val.toString(16).toUpperCase()} &nbsp; bits: ${pureBinary.length}`;
+    } catch { convEl.innerHTML = '変換不可'; }
   }
 
   function saveBits() { localStorage.setItem(STORAGE_KEY_BITS, myBits.join('')); }
-  function restoreBits() {
-    const saved = localStorage.getItem(STORAGE_KEY_BITS) || '';
-    myBits = /^[01\n]*$/.test(saved) ? saved.split('') : [];
-    myCursorIdx = myBits.length;
-  }
+  function restoreBits() { const saved = localStorage.getItem(STORAGE_KEY_BITS) || ''; myBits = saved.split(''); if (myBits.length === 1 && myBits[0] === '') myBits = []; myCursorIdx = myBits.length; }
   function restoreSettings() {
-    // 消去確認
     chkConfirm.checked = (localStorage.getItem(STORAGE_KEY_CONFIRM) !== '0');
-    // 自動改行 (デフォルトオフ)
     chkAutowrap.checked = (localStorage.getItem(STORAGE_KEY_AUTOWRAP_ON) === '1');
     numWrapcount.value = localStorage.getItem(STORAGE_KEY_AUTOWRAP_VAL) || '8';
+    selWrapcode.value = localStorage.getItem(STORAGE_KEY_AUTOWRAP_CODE) || 'nl';
+    myIDBox.value = localStorage.getItem(STORAGE_KEY_MY_ID) || '';
+    peerIDInput.value = localStorage.getItem(STORAGE_KEY_PEER_ID) || '';
   }
 
-  // ── WebRTC 通信処理 ───────────────────────────
-  saveIDBtn.addEventListener('click', (e) => { e.stopPropagation(); const value = normalizeBinaryId(myIDBox.value); if (!value) { alert('自分のIDは 0 と 1 のみで入力してください'); return; } myIDBox.value = value; localStorage.setItem(STORAGE_KEY_ID, value); updateStatus('自分のIDを保存しました'); });
-  makeOfferBtn.addEventListener('click', async (e) => { e.stopPropagation(); try { const myId = ensureMyId(); const peerId = normalizeBinaryId(peerIDInput.value); if (!peerId) { alert('相手的IDを入力してください'); return; } role = 'offerer'; resetPeerOnly(); const pc = createPeer(); channel = pc.createDataChannel('binary-pad-dual'); attachChannel(channel); updateStatus('接続コードを生成中…'); const offer = await pc.createOffer(); await pc.setLocalDescription(offer); updateLocalBox(); updateStatus('offerコードを生成しました。数秒待って更新が止まったらコピーして相手へ送ってください。'); } catch (error) { handleError('接続コード生成に失敗しました', error); } });
-  applyBtn.addEventListener('click', async (e) => { e.stopPropagation(); try { const myId = ensureMyId(); const incoming = decodeSignal(remoteBox.value); validateSignal(incoming); const incomingTo = normalizeBinaryId(incoming.to || ''); const incomingFrom = normalizeBinaryId(incoming.from || ''); if (incomingTo && incomingTo !== myId) { throw new Error('このコードは別のID宛てです'); } if (incoming.kind === 'offer') { role = 'answerer'; resetPeerOnly(); const pc = createPeer(); if (incomingFrom) peerIDInput.value = incomingFrom; updateStatus('offerを適用中…'); await pc.setRemoteDescription(incoming.description); const answer = await pc.createAnswer(); await pc.setLocalDescription(answer); updateLocalBox(); updateStatus('offerを受信しました。数秒待って更新が止まったらanswerコードを相手へ返してください。'); return; } if (incoming.kind === 'answer') { if (!peer) throw new Error('先に発信側で offer コードを生成してください'); if (peer.signalingState !== 'have-local-offer') { throw new Error('現在の状態では answer を適用できません'); } updateStatus('answerを適用中…'); await peer.setRemoteDescription(incoming.description); updateStatus('answerを適用しました。接続完了を待っています…'); return; } } catch (error) { handleError('相手コード適用に失敗しました', error); } });
-  copyLocalBtn.addEventListener('click', async (e) => { e.stopPropagation(); if (!localBox.value.trim()) { alert('まだ生成コードがありません'); return; } await copyText(localBox.value, copyLocalBtn, '✓ コードコピー済み'); });
-  resetConnectionBtn.addEventListener('click', (e) => { e.stopPropagation(); resetPeerOnly(); localBox.value = ''; remoteBox.value = ''; role = null; peerBits = []; renderPeerPane(); updateStatus('接続をリセットしました'); });
+  // ── 【重要】自動WebRTCシグナリング通信処理 ──────────────────
+  let isConnecting = false;
 
-  function updateLocalBox() { if (!peer || !peer.localDescription) return; try { const myId = ensureMyId(); const peerId = normalizeBinaryId(peerIDInput.value) || ''; localBox.value = encodeSignal({ app: APP_TAG, version: 1, kind: role === 'offerer' ? 'offer' : 'answer', from: myId, to: role === 'offerer' ? peerId : (normalizeBinaryId(decodeSignal(remoteBox.value).from) || ''), description: peer.localDescription }); } catch (e) { console.error("ローカルコードの更新に失敗", e); } }
-  function createPeer() {
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS }); peer = pc;
-    pc.addEventListener('icecandidate', () => { updateLocalBox(); });
-    pc.addEventListener('datachannel', (event) => { channel = event.channel; attachChannel(channel); });
-    pc.addEventListener('connectionstatechange', () => {
-      if (pc.connectionState === 'connected') { updateStatus('接続成功！エリアが同期されています。'); p2pContent.classList.add('collapsed'); p2pToggle.textContent = '▼ 接続設定・コード交換 (クリックで開く)'; broadcastState(); }
-      else if (pc.connectionState === 'failed') { updateStatus('接続失敗。リセットしてやり直してください。'); }
-    });
+  function updateStatus(msg) {
+    const state = peer ? `[WebRTC: ${peer.connectionState}]` : '[未接続]';
+    statusBox.textContent = `${msg} ${state}`;
+  }
+
+  // サーバーの特定チャンネルを監視する仕組み
+  function startSignalingListener() {
+    const myId = normalizeBinaryId(myIDBox.value);
+    const peerId = normalizeBinaryId(peerIDInput.value);
+
+    if (!myId || !peerId) {
+      updateStatus('IDを入力してください。お互いが一致すると自動接続します。');
+      return;
+    }
+
+    if (sseSource) sseSource.close();
+    if (peer && peer.connectionState === 'connected') return;
+
+    updateStatus(`自動接続待機中... (あなたのID: ${myId} -> 相手: ${peerId})`);
+
+    // 簡易的なシグナリング中継（EventSourceを使用）
+    // 相手が自分宛てに投げた「offer」や「answer」を自動検知する
+    sseSource = new EventSource(`${SIGNALING_URL}/listen?room=${myId}`);
+    sseSource.onmessage = async (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.from !== peerId) return; // 指定した相手以外からの通信は無視
+
+        if (data.type === 'offer' && (!peer || peer.signalingState === 'stable')) {
+          updateStatus('相手からの接続(Offer)を自動検知しました。応答中...');
+          await handleIncomingOffer(data.sdp, myId, peerId);
+        } else if (data.type === 'answer' && peer) {
+          updateStatus('相手からの応答(Answer)を自動適用しました。接続完了を待っています...');
+          await peer.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: data.sdp }));
+        }
+      } catch (e) {
+        console.error("シグナリング受信エラー", e);
+      }
+    };
+
+    // 先に部屋に入った側（または能動的）にOfferを作らせるためのトリガー（3秒毎に確認）
+    // 先行側が自動でOfferを出し、後行側がそれをキャッチして自動でAnswerを返す
+    if (!isConnecting) {
+      isConnecting = true;
+      setTimeout(() => {
+        if (!peer || peer.connectionState !== 'connected') {
+          triggerAutoOffer(myId, peerId);
+        }
+        isConnecting = false;
+      }, 2000);
+    }
+  }
+
+  async function triggerAutoOffer(myId, peerId) {
+    if (peer && peer.connectionState === 'connected') return;
+    // IDの数値比較で、常に片方がOffer担当（offerer）、片方がAnswer担当になるよう役割競合を防ぐ
+    if (BigInt('0b' + myId) > BigInt('0b' + peerId)) {
+      return; // 自分の方がIDが大きい場合は相手からのOfferを待つ
+    }
+
+    try {
+      updateStatus('接続を開始(Offerを送信)しています...');
+      const pc = createPeerConnection(myId, peerId);
+      channel = pc.createDataChannel('binary-pad-auto');
+      attachChannel(channel);
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      // 相手の待受ルーム（相手のID名）へOfferを送信
+      await sendSignal(peerId, { type: 'offer', from: myId, sdp: offer.sdp });
+    } catch (err) {
+      console.warn("Offer自動送信リトライ中...", err);
+    }
+  }
+
+  async function handleIncomingOffer(sdp, myId, peerId) {
+    try {
+      const pc = createPeerConnection(myId, peerId);
+      await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: sdp }));
+      
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+
+      // 相手の待受ルームへAnswerを送信
+      await sendSignal(peerId, { type: 'answer', from: myId, sdp: answer.sdp });
+    } catch (err) {
+      console.error("Answer自動返信失敗", err);
+    }
+  }
+
+  function createPeerConnection(myId, peerId) {
+    if (peer) { try { peer.close(); } catch {} }
+    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    peer = pc;
+
+    pc.onicecandidate = (e) => {
+      // ICE候補が確定したら、最新のSDP（ローカル記述）を再送して接続率を高める
+      if (!e.candidate && pc.localDescription) {
+        sendSignal(peerId, { type: pc.localDescription.type, from: myId, sdp: pc.localDescription.sdp });
+      }
+    };
+
+    pc.ondatachannel = (event) => {
+      channel = event.channel;
+      attachChannel(channel);
+    };
+
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'connected') {
+        updateStatus('接続成功！同期されています。');
+        if (sseSource) { sseSource.close(); sseSource = null; } // 繋がったら中継サーバーとの接続は切断
+        broadcastState();
+      } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+        updateStatus('接続が切れました。再接続を試みます...');
+        setTimeout(startSignalingListener, 3000);
+      }
+    };
     return pc;
   }
+
   function attachChannel(dc) {
-    dc.addEventListener('open', () => { broadcastState(); });
-    dc.addEventListener('message', (event) => {
-      try { const message = JSON.parse(event.data); if (message.type === 'state' && typeof message.bits === 'string') { peerBits = message.bits.split('').filter(ch => /^[01\n]$/.test(ch)); renderPeerPane(); } } catch (error) { console.warn('データ解析エラー:', error); }
-    });
+    dc.onopen = () => { broadcastState(); };
+    dc.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        if (message.type === 'state' && typeof message.bits === 'string') {
+          peerBits = message.bits.split('');
+          if (peerBits.length === 1 && peerBits[0] === '') peerBits = [];
+          renderPeerPane();
+        }
+      } catch (error) { console.warn('解析エラー:', error); }
+    };
   }
-  function broadcastState() { if (!channel || channel.readyState !== 'open') return; channel.send(JSON.stringify({ type: 'state', bits: myBits.join('') })); }
-  function resetPeerOnly() { try { if (channel && channel.readyState !== 'closed') channel.close(); } catch {} try { if (peer && peer.signalingState !== 'closed') peer.close(); } catch {} peer = null; channel = null; }
-  
-  // ── シグナリング処理 ───────────────────────────
-  function encodeSignal(payload) { const json = JSON.stringify(payload); const bytes = new TextEncoder().encode(json); let binary = ''; for (const byte of bytes) binary += String.fromCharCode(byte); return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''); }
-  function decodeSignal(text) { const compact = String(text || '').trim().replace(/\s+/g, ''); if (!compact) throw new Error('コードが空です'); const normalized = compact.replace(/-/g, '+').replace(/_/g, '/'); const padding = '='.repeat((4 - (normalized.length % 4 || 4)) % 4); const binary = atob(normalized + padding); const bytes = Uint8Array.from(binary, ch => ch.charCodeAt(0)); return JSON.parse(new TextDecoder().decode(bytes)); }
-  function validateSignal(signal) { if (!signal || typeof signal !== 'object') throw new Error('形式が不正です'); if (signal.app !== APP_TAG) throw new Error('他アプリ用のコードです'); }
+
+  function broadcastState() { if (channel && channel.readyState === 'open') channel.send(JSON.stringify({ type: 'state', bits: myBits.join('') })); }
+
+  // サーバーへ接続信号を書き込む関数
+  async function sendSignal(toRoom, payload) {
+    try {
+      await fetch(`${SIGNALING_URL}/send?room=${toRoom}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    } catch (e) { console.warn("シグナル送信失敗", e); }
+  }
+
   function sanitizeBinaryInput(event) { event.target.value = normalizeBinaryId(event.target.value); }
   function normalizeBinaryId(value) { return String(value || '').replace(/[^01]/g, ''); }
-  function initializeIds() { const savedId = normalizeBinaryId(localStorage.getItem(STORAGE_KEY_ID) || ''); if (savedId) { myIDBox.value = savedId; return; } myIDBox.value = BigInt('0x' + crypto.randomUUID().replace(/-/g, '').slice(0, 12)).toString(2); }
-  function ensureMyId() { const myId = normalizeBinaryId(myIDBox.value); if (!myId) throw new Error('自分のIDを設定してください'); localStorage.setItem(STORAGE_KEY_ID, myId); return myId; }
-  function updateStatus(message) { const state = peer ? `[Conn: ${peer.connectionState} | Channel: ${channel ? channel.readyState : '-'}]` : '[未接続]'; statusBox.textContent = `${message}\n${state}`; }
-  async function copyText(text, button, successLabel) { try { await navigator.clipboard.writeText(text); const original = button.textContent; button.textContent = successLabel; setTimeout(() => { button.textContent = original; }, 1200); } catch { alert('コピーに失敗しました。HTTPS環境で実行しているか確認してください。'); } }
-  function handleError(prefix, error) { const message = error instanceof Error ? error.message : String(error); updateStatus(`${prefix}: ${message}`); alert(`${prefix}\n${message}`); }
+  async function copyText(text, button, successLabel) { try { await navigator.clipboard.writeText(text); const orig = button.textContent; button.textContent = successLabel; setTimeout(() => button.textContent = orig, 1200); } catch { alert('コピー失敗'); } }
 })();
 </script>
 </body>
