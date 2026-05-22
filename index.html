@@ -16,7 +16,7 @@
     display: flex;
     flex-direction: column;
     min-height: 100vh;
-    cursor: pointer; /* どこでもクリックできるためカーソルを指マークに */
+    cursor: pointer;
     user-select: none;
   }
 
@@ -77,13 +77,15 @@
 
   .output.empty { color: #c9c9c9; }
 
-  #cursor {
+  /* 変化するテキスト要素内のカーソル */
+  .fake-cursor {
     display: inline-block;
     width: 2px;
     height: 1.1em;
     background: #000;
     vertical-align: text-bottom;
-    margin-left: 2px;
+    margin-left: 1px;
+    margin-right: 1px;
     animation: blink 1s step-end infinite;
   }
 
@@ -203,7 +205,7 @@
     border: 1px solid #d9d9d9;
     background: #fff;
     color: #111;
-    cursor: text; /* 入力欄はテキスト用カーソルに */
+    cursor: text;
   }
 
   #p2p-content textarea {
@@ -251,29 +253,29 @@
 <div id="split-container">
   <div id="my-pane" class="pad-pane">
     <div class="pane-title">【自分】の入力エリア</div>
-    <div id="my-output" class="output empty"><span id="my-text-node"></span><span id="cursor"></span></div>
+    <div id="my-output" class="output empty"></div>
     <div id="my-conversions" class="conversions">dec: 0 &nbsp; hex: 0x0 &nbsp; bits: 0</div>
   </div>
   
   <div id="peer-pane" class="pad-pane">
     <div class="pane-title">【相手】の同期エリア</div>
-    <div id="peer-output" class="output empty"><span id="peer-text-node"></span></div>
+    <div id="peer-output" class="output empty">（相手の入力待ち）</div>
     <div id="peer-conversions" class="conversions">dec: 0 &nbsp; hex: 0x0 &nbsp; bits: 0</div>
   </div>
 </div>
 
 <div id="toolbar">
-  <button id="btn-backspace">1文字削除 (BS/DEL)</button>
+  <button id="btn-backspace">削除 (BS)</button>
   <button id="btn-newline">改行 (Enter)</button>
   <button id="btn-clear">全消去</button>
   <button id="btn-copy">自分の入力をコピー</button>
 </div>
 
 <div id="hint">
-  <span>【画面の空いている場所どこでも】 左クリック → 1</span>
-  <span>右クリック → 0</span>
-  <span>【キーボード】 Enter → 改行</span>
-  <span>Backspace / Delete → 1文字削除</span>
+  <span>【画面の空白どこでも】 左クリック → 1挿入</span>
+  <span>右クリック → 0挿入</span>
+  <span>【キーボード】 ← → ↑ ↓ → カーソル移動</span>
+  <span>Backspace / Delete → 削除</span>
 </div>
 
 <div id="p2p-accordion">
@@ -312,7 +314,7 @@
 
     <div id="instructions">
       <span class="pill">手順 1</span> 発信側が「相手のID」を入れて「接続コード生成（発信）」<br>
-      <span class="pill">手順 2</span> 生成コードを相手へ送る（2〜3秒待ってからコピーするのを推奨）<br>
+      <span class="pill">手順 2</span> 生成コードを相手へ送る<br>
       <span class="pill">手順 3</span> 受信側がそのコードを貼り付けて「相手コード適用」<br>
       <span class="pill">手順 4</span> 受信側に生成された返答コードを、発信側が貼り付けて「相手コード適用」<br>
       <span class="pill">完了</span> 接続成功後はリアルタイムに双方向同期が開始されます
@@ -325,11 +327,9 @@
   'use strict';
 
   // ── DOM エレメント ───────────────────────────
-  const myTextNode = document.getElementById('my-text-node');
   const myOutput = document.getElementById('my-output');
   const myConversions = document.getElementById('my-conversions');
 
-  const peerTextNode = document.getElementById('peer-text-node');
   const peerOutput = document.getElementById('peer-output');
   const peerConversions = document.getElementById('peer-conversions');
 
@@ -354,8 +354,10 @@
   const copyBtn = document.getElementById('btn-copy');
 
   // ── 状態管理 ─────────────────────────────────
-  let myBits = [];    // 自分の入力（配列）
-  let peerBits = [];  // 相手から送られてきた入力（配列）
+  let myBits = [];      // 自分の入力配列 (0, 1, '\n')
+  let myCursorIdx = 0;  // 自分のカーソル位置 (0 〜 myBits.length)
+  let peerBits = [];    // 相手の入力配列
+
   let peer = null;
   let channel = null;
   let role = null;
@@ -368,157 +370,236 @@
   // ── 初期化 ───────────────────────────────────
   initializeIds();
   restoreBits();
-  renderPane(myBits, myTextNode, myOutput, myConversions, true);
-  renderPane(peerBits, peerTextNode, peerOutput, peerConversions, false);
+  renderMyPane();
+  renderPeerPane();
   updateStatus('未接続');
 
-  // 折り畳みアコーディオンのイベント
   p2pToggle.addEventListener('click', (event) => {
-    event.stopPropagation(); // どこでも入力イベントを遮断
+    event.stopPropagation();
     p2pContent.classList.toggle('collapsed');
-    if(p2pContent.classList.contains('collapsed')) {
-      p2pToggle.textContent = '▼ 接続設定・コード交換 (クリックで開く)';
-    } else {
-      p2pToggle.textContent = '▲ 接続設定・コード交換 (クリックで閉じる)';
-    }
+    p2pToggle.textContent = p2pContent.classList.contains('collapsed') 
+      ? '▼ 接続設定・コード交換 (クリックで開く)' 
+      : '▲ 接続設定・コード交換 (クリックで閉じる)';
   });
 
   peerIDInput.addEventListener('input', sanitizeBinaryInput);
   myIDBox.addEventListener('input', sanitizeBinaryInput);
 
-  // ── キーボード操作の割り当て ───────────────────
+  // ── キーボードイベント（移動・削除・改行） ──────
   window.addEventListener('keydown', (event) => {
-    // ユーザーがID入力欄やコードのテキストエリアに入力している最中はショートカットを無効化
-    if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') {
-      return;
-    }
+    if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') return;
 
-    if (event.key === 'Backspace' || event.key === 'Delete') {
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      if (myCursorIdx > 0) { myCursorIdx--; renderMyPane(); }
+    } else if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      if (myCursorIdx < myBits.length) { myCursorIdx++; renderMyPane(); }
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      moveVertical(-1);
+    } else if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      moveVertical(1);
+    } else if (event.key === 'Backspace') {
       event.preventDefault();
       executeBackspace();
+    } else if (event.key === 'Delete') {
+      event.preventDefault();
+      executeDelete();
     } else if (event.key === 'Enter') {
       event.preventDefault();
-      executeNewline();
+      insertBit('\n');
     }
   });
 
-  // ── 画面上の「どこでもクリック」判定 ─────────────
+  // ── 画面上のどこでもクリックイベント ───────────
   window.addEventListener('click', (event) => {
-    // ボタン、インプット、テキストエリア、開閉バーの上でのクリックは無視
-    if (
-      event.target.tagName === 'BUTTON' || 
-      event.target.tagName === 'INPUT' || 
-      event.target.tagName === 'TEXTAREA' ||
-      event.target.id === 'p2p-toggle'
-    ) {
-      return;
-    }
-    appendBit(1);
+    if (isIgnoredElement(event.target)) return;
+    insertBit(1);
   });
 
   window.addEventListener('contextmenu', (event) => {
-    // 右クリックも同様に判定
-    if (
-      event.target.tagName === 'BUTTON' || 
-      event.target.tagName === 'INPUT' || 
-      event.target.tagName === 'TEXTAREA' ||
-      event.target.id === 'p2p-toggle'
-    ) {
+    if (isIgnoredElement(event.target)) return;
+    event.preventDefault();
+    insertBit(0);
+  });
+
+  function isIgnoredElement(target) {
+    return target.tagName === 'BUTTON' || 
+           target.tagName === 'INPUT' || 
+           target.tagName === 'TEXTAREA' || 
+           target.id === 'p2p-toggle';
+  }
+
+  // ── ツールバーのボタン処理 ──────────────────
+  backspaceBtn.addEventListener('click', (e) => { e.stopPropagation(); executeBackspace(); });
+  newlineBtn.addEventListener('click', (e) => { e.stopPropagation(); insertBit('\n'); });
+  clearBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!confirm('自分の入力をすべて消去しますか？')) return;
+    myBits = [];
+    myCursorIdx = 0;
+    saveBits();
+    renderMyPane();
+    broadcastState();
+  });
+  copyBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (!myBits.length) return;
+    await copyText(myBits.join(''), copyBtn, '✓ コピー済み');
+  });
+
+  // ── データ操作ロジック ────────────────────────
+  function insertBit(val) {
+    myBits.splice(myCursorIdx, 0, val);
+    myCursorIdx++;
+    saveBits();
+    renderMyPane();
+    broadcastState();
+  }
+
+  function executeBackspace() {
+    if (myCursorIdx === 0) return;
+    myBits.splice(myCursorIdx - 1, 1);
+    myCursorIdx--;
+    saveBits();
+    renderMyPane();
+    broadcastState();
+  }
+
+  function executeDelete() {
+    if (myCursorIdx === myBits.length) return;
+    myBits.splice(myCursorIdx, 1);
+    saveBits();
+    renderMyPane();
+    broadcastState();
+  }
+
+  // 上下矢印キーの疑似行移動ロジック
+  function moveVertical(direction) {
+    const lines = myBits.join('').split('\n');
+    let accumulated = 0;
+    let currentLineIdx = 0;
+    let currentChIdx = 0;
+
+    for (let i = 0; i < lines.length; i++) {
+      const start = accumulated;
+      const end = accumulated + lines[i].length;
+      if (myCursorIdx >= start && myCursorIdx <= end) {
+        currentLineIdx = i;
+        currentChIdx = myCursorIdx - start;
+        break;
+      }
+      accumulated += lines[i].length + 1; // +1は '\n' の分
+    }
+
+    const targetLineIdx = currentLineIdx + direction;
+    if (targetLineIdx < 0 || targetLineIdx >= lines.length) return;
+
+    let targetGlobalIdx = 0;
+    for (let i = 0; i < targetLineIdx; i++) {
+      targetGlobalIdx += lines[i].length + 1;
+    }
+    const targetLineLen = lines[targetLineIdx].length;
+    targetGlobalIdx += Math.min(currentChIdx, targetLineLen);
+
+    myCursorIdx = targetGlobalIdx;
+    renderMyPane();
+  }
+
+  // ── 描画処理（カーソル表示の動的生成） ──────────
+  function renderMyPane() {
+    myOutput.innerHTML = '';
+    
+    if (myBits.length === 0) {
+      myOutput.classList.add('empty');
+      const cursorSpan = document.createElement('span');
+      cursorSpan.className = 'fake-cursor';
+      myOutput.appendChild(cursorSpan);
+    } else {
+      myOutput.classList.remove('empty');
+      const textBefore = myBits.slice(0, myCursorIdx).join('');
+      const textAfter = myBits.slice(myCursorIdx).join('');
+
+      const beforeNode = document.createTextNode(textBefore);
+      const cursorSpan = document.createElement('span');
+      cursorSpan.className = 'fake-cursor';
+      const afterNode = document.createTextNode(textAfter);
+
+      myOutput.appendChild(beforeNode);
+      myOutput.appendChild(cursorSpan);
+      myOutput.appendChild(afterNode);
+    }
+    
+    updateConversions(myBits, myConversions);
+    myOutput.scrollTop = myOutput.scrollHeight;
+  }
+
+  function renderPeerPane() {
+    peerOutput.innerHTML = '';
+    if (peerBits.length === 0) {
+      peerOutput.classList.add('empty');
+      peerOutput.textContent = '（相手の入力待ち）';
+    } else {
+      peerOutput.classList.remove('empty');
+      peerOutput.textContent = peerBits.join('');
+    }
+    updateConversions(peerBits, peerConversions);
+    peerOutput.scrollTop = peerOutput.scrollHeight;
+  }
+
+  function updateConversions(bitArray, convEl) {
+    const pureBinary = bitArray.join('').replace(/\n/g, '');
+    if (!pureBinary) {
+      convEl.innerHTML = 'dec: 0 &nbsp; hex: 0x0 &nbsp; bits: 0';
       return;
     }
-    event.preventDefault();
-    appendBit(0);
-  });
-
-  // ── ツールバーの通常ボタン処理 ──────────────────
-  backspaceBtn.addEventListener('click', (event) => {
-    event.stopPropagation();
-    executeBackspace();
-  });
-
-  newlineBtn.addEventListener('click', (event) => {
-    event.stopPropagation();
-    executeNewline();
-  });
-
-  clearBtn.addEventListener('click', (event) => {
-    event.stopPropagation();
-    if(!confirm('自分の入力をすべて消去しますか？')) return;
-    myBits = [];
-    saveBits();
-    renderPane(myBits, myTextNode, myOutput, myConversions, true);
-    broadcastState();
-  });
-
-  copyBtn.addEventListener('click', async (event) => {
-    event.stopPropagation();
-    if (!myBits.length) return;
-    const textToCopy = myBits.join('');
-    await copyText(textToCopy, copyBtn, '✓ コピー済み');
-  });
-
-  // ── 共通操作処理関数 ──────────────────────────
-  function executeBackspace() {
-    if (!myBits.length) return;
-    myBits.pop();
-    saveBits();
-    renderPane(myBits, myTextNode, myOutput, myConversions, true);
-    broadcastState();
+    try {
+      const val = BigInt('0b' + pureBinary);
+      const decStr = val.toString(10).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+      const hexStr = '0x' + val.toString(16).toUpperCase();
+      convEl.innerHTML = `dec: ${decStr} &nbsp; hex: ${hexStr} &nbsp; bits: ${pureBinary.length}`;
+    } catch {
+      convEl.innerHTML = '変換不可';
+    }
   }
 
-  function executeNewline() {
-    myBits.push('\n');
-    saveBits();
-    renderPane(myBits, myTextNode, myOutput, myConversions, true);
-    broadcastState();
+  function saveBits() { localStorage.setItem(STORAGE_KEY_BITS, myBits.join('')); }
+  function restoreBits() {
+    const saved = localStorage.getItem(STORAGE_KEY_BITS) || '';
+    myBits = /^[01\n]*$/.test(saved) ? saved.split('') : [];
+    myCursorIdx = myBits.length;
   }
 
-  // ── P2P関連ボタン ──────────────────────────────
-  // (以降のイベントやWebRTCの中身、シグナリング処理は、確実に繋がる前ターンの最高スペックのまま維持しています)
+  // ── WebRTC 通信処理 ───────────────────────────
   saveIDBtn.addEventListener('click', (e) => { e.stopPropagation(); const value = normalizeBinaryId(myIDBox.value); if (!value) { alert('自分のIDは 0 と 1 のみで入力してください'); return; } myIDBox.value = value; localStorage.setItem(STORAGE_KEY_ID, value); updateStatus('自分のIDを保存しました'); });
   makeOfferBtn.addEventListener('click', async (e) => { e.stopPropagation(); try { const myId = ensureMyId(); const peerId = normalizeBinaryId(peerIDInput.value); if (!peerId) { alert('相手のIDを入力してください'); return; } role = 'offerer'; resetPeerOnly(); const pc = createPeer(); channel = pc.createDataChannel('binary-pad-dual'); attachChannel(channel); updateStatus('接続コードを生成中…'); const offer = await pc.createOffer(); await pc.setLocalDescription(offer); updateLocalBox(); updateStatus('offerコードを生成しました。数秒待って更新が止まったらコピーして相手へ送ってください。'); } catch (error) { handleError('接続コード生成に失敗しました', error); } });
   applyBtn.addEventListener('click', async (e) => { e.stopPropagation(); try { const myId = ensureMyId(); const incoming = decodeSignal(remoteBox.value); validateSignal(incoming); const incomingTo = normalizeBinaryId(incoming.to || ''); const incomingFrom = normalizeBinaryId(incoming.from || ''); if (incomingTo && incomingTo !== myId) { throw new Error('このコードは別のID宛てです'); } if (incoming.kind === 'offer') { role = 'answerer'; resetPeerOnly(); const pc = createPeer(); if (incomingFrom) peerIDInput.value = incomingFrom; updateStatus('offerを適用中…'); await pc.setRemoteDescription(incoming.description); const answer = await pc.createAnswer(); await pc.setLocalDescription(answer); updateLocalBox(); updateStatus('offerを受信しました。数秒待って更新が止まったらanswerコードを相手へ返してください。'); return; } if (incoming.kind === 'answer') { if (!peer) throw new Error('先に発信側で offer コードを生成してください'); if (peer.signalingState !== 'have-local-offer') { throw new Error('現在の状態では answer を適用できません'); } updateStatus('answerを適用中…'); await peer.setRemoteDescription(incoming.description); updateStatus('answerを適用しました。接続完了を待っています…'); return; } } catch (error) { handleError('相手コード適用に失敗しました', error); } });
   copyLocalBtn.addEventListener('click', async (e) => { e.stopPropagation(); if (!localBox.value.trim()) { alert('まだ生成コードがありません'); return; } await copyText(localBox.value, copyLocalBtn, '✓ コードコピー済み'); });
-  resetConnectionBtn.addEventListener('click', (e) => { e.stopPropagation(); resetPeerOnly(); localBox.value = ''; remoteBox.value = ''; role = null; peerBits = []; renderPane(peerBits, peerTextNode, peerOutput, peerConversions, false); updateStatus('接続をリセットしました'); });
+  resetConnectionBtn.addEventListener('click', (e) => { e.stopPropagation(); resetPeerOnly(); localBox.value = ''; remoteBox.value = ''; role = null; peerBits = []; renderPeerPane(); updateStatus('接続をリセットしました'); });
 
   function updateLocalBox() { if (!peer || !peer.localDescription) return; try { const myId = ensureMyId(); const peerId = normalizeBinaryId(peerIDInput.value) || ''; localBox.value = encodeSignal({ app: APP_TAG, version: 1, kind: role === 'offerer' ? 'offer' : 'answer', from: myId, to: role === 'offerer' ? peerId : (normalizeBinaryId(decodeSignal(remoteBox.value).from) || ''), description: peer.localDescription }); } catch (e) { console.error("ローカルコードの更新に失敗", e); } }
-  function appendBit(value) { myBits.push(value); saveBits(); renderPane(myBits, myTextNode, myOutput, myConversions, true); broadcastState(); }
-
-  function renderPane(bitArray, textEl, outputEl, convEl, isMyPane) {
-    const str = bitArray.join('');
-    if (!str) { outputEl.classList.add('empty'); textEl.textContent = isMyPane ? '' : '（相手の入力待ち）'; convEl.innerHTML = 'dec: 0 &nbsp; hex: 0x0 &nbsp; bits: 0'; outputEl.scrollTop = outputEl.scrollHeight; return; }
-    outputEl.classList.remove('empty'); textEl.textContent = str; outputEl.scrollTop = outputEl.scrollHeight;
-    const pureBinary = str.replace(/\n/g, ''); if(!pureBinary) { convEl.innerHTML = 'dec: 0 &nbsp; hex: 0x0 &nbsp; bits: 0'; return; }
-    const decimal = toBigIntString(pureBinary, 10); const hexadecimal = '0x' + toBigIntString(pureBinary, 16).toUpperCase();
-    convEl.innerHTML = `dec: ${formatLargeDecimal(decimal)} &nbsp; hex: ${hexadecimal} &nbsp; bits: ${pureBinary.length}`;
-  }
-
-  function toBigIntString(binaryString, radix) { try { if (!binaryString) return '0'; const value = BigInt('0b' + binaryString); return value.toString(radix); } catch { return '変換不可'; } }
-  function formatLargeDecimal(decimal) { if (!/^\d+$/.test(decimal)) return decimal; return decimal.replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
-  function saveBits() { localStorage.setItem(STORAGE_KEY_BITS, myBits.join('')); }
-  function restoreBits() { const saved = localStorage.getItem(STORAGE_KEY_BITS) || ''; myBits = /^[01\n]*$/.test(saved) ? saved.split('') : []; }
-
   function createPeer() {
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS }); peer = pc;
     pc.addEventListener('icecandidate', () => { updateLocalBox(); });
     pc.addEventListener('datachannel', (event) => { channel = event.channel; attachChannel(channel); });
     pc.addEventListener('connectionstatechange', () => {
-      const state = pc.connectionState;
-      if (state === 'connected') { updateStatus('接続成功！エリアが同期されています。'); p2pContent.classList.add('collapsed'); p2pToggle.textContent = '▼ 接続設定・コード交換 (クリックで開く)'; broadcastState(); }
-      else if (state === 'failed') { updateStatus('接続失敗。リセットしてやり直してください。'); }
+      if (pc.connectionState === 'connected') { updateStatus('接続成功！エリアが同期されています。'); p2pContent.classList.add('collapsed'); p2pToggle.textContent = '▼ 接続設定・コード交換 (クリックで開く)'; broadcastState(); }
+      else if (pc.connectionState === 'failed') { updateStatus('接続失敗。リセットしてやり直してください。'); }
     });
     return pc;
   }
-
   function attachChannel(dc) {
     dc.addEventListener('open', () => { broadcastState(); });
     dc.addEventListener('message', (event) => {
-      try { const message = JSON.parse(event.data); if (message.type === 'state' && typeof message.bits === 'string') { peerBits = message.bits.split('').filter(ch => /^[01\n]$/.test(ch)); renderPane(peerBits, peerTextNode, peerOutput, peerConversions, false); } } catch (error) { console.warn('データ解析エラー:', error); }
+      try { const message = JSON.parse(event.data); if (message.type === 'state' && typeof message.bits === 'string') { peerBits = message.bits.split('').filter(ch => /^[01\n]$/.test(ch)); renderPeerPane(); } } catch (error) { console.warn('データ解析エラー:', error); }
     });
   }
-
   function broadcastState() { if (!channel || channel.readyState !== 'open') return; channel.send(JSON.stringify({ type: 'state', bits: myBits.join('') })); }
   function resetPeerOnly() { try { if (channel && channel.readyState !== 'closed') channel.close(); } catch {} try { if (peer && peer.signalingState !== 'closed') peer.close(); } catch {} peer = null; channel = null; }
+  
+  // ── シグナリング処理 ───────────────────────────
   function encodeSignal(payload) { const json = JSON.stringify(payload); const bytes = new TextEncoder().encode(json); let binary = ''; for (const byte of bytes) binary += String.fromCharCode(byte); return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''); }
   function decodeSignal(text) { const compact = String(text || '').trim().replace(/\s+/g, ''); if (!compact) throw new Error('コードが空です'); const normalized = compact.replace(/-/g, '+').replace(/_/g, '/'); const padding = '='.repeat((4 - (normalized.length % 4 || 4)) % 4); const binary = atob(normalized + padding); const bytes = Uint8Array.from(binary, ch => ch.charCodeAt(0)); return JSON.parse(new TextDecoder().decode(bytes)); }
   function validateSignal(signal) { if (!signal || typeof signal !== 'object') throw new Error('形式が不正です'); if (signal.app !== APP_TAG) throw new Error('他アプリ用のコードです'); }
