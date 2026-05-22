@@ -106,12 +106,14 @@
   /* ── ツールバー ───────────────────────────── */
   #toolbar {
     display: flex;
+    align-items: center;
     border-top: 1px solid #ddd;
     background: #f8f8f8;
     gap: 0;
+    flex-wrap: wrap;
   }
 
-  button {
+  #toolbar button {
     flex: 1;
     padding: 12px;
     border: none;
@@ -123,15 +125,36 @@
     cursor: pointer;
     letter-spacing: 0.04em;
     transition: background 0.12s ease;
+    min-width: 100px;
   }
 
-  button:last-child { border-right: none; }
-  button:hover { background: #efefef; }
-  button:active { background: #e0e0e0; }
-  button:disabled {
-    color: #aaa;
-    cursor: not-allowed;
-    background: #f8f8f8;
+  #toolbar button:hover { background: #efefef; }
+  #toolbar button:active { background: #e0e0e0; }
+
+  /* 設定チェックボックス・入力ラップ */
+  .setting-wrap {
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    font-size: 11px;
+    color: #555;
+    gap: 6px;
+    border-left: 1px solid #ddd;
+    height: 41px;
+    background: #f1f1f1;
+    cursor: default;
+  }
+  .setting-wrap input[type="checkbox"] {
+    cursor: pointer;
+  }
+  .setting-wrap input[type="number"] {
+    width: 42px;
+    padding: 2px 4px;
+    font-family: inherit;
+    font-size: 11px;
+    border: 1px solid #ccc;
+    text-align: center;
+    cursor: text;
   }
 
   #hint {
@@ -160,6 +183,7 @@
     font-weight: bold;
     font-size: 12px;
     border: none;
+    border-right: none !important;
     cursor: pointer;
     display: flex;
     justify-content: space-between;
@@ -195,6 +219,9 @@
     border: 1px solid #ddd;
     background: #f8f8f8;
   }
+  .button-row button { border-right: 1px solid #ddd; padding: 10px; font-size: 12px; cursor: pointer; background: transparent; border-top:none; border-left:none; border-bottom:none; flex:1;}
+  .button-row button:last-child { border-right: none; }
+  .button-row button:hover { background: #efefef; }
 
   #p2p-content textarea,
   #p2p-content input {
@@ -269,13 +296,24 @@
   <button id="btn-newline">改行 (Enter)</button>
   <button id="btn-clear">全消去</button>
   <button id="btn-copy">自分の入力をコピー</button>
+  
+  <div class="setting-wrap" id="wrap-autowrap">
+    <input type="checkbox" id="chk-autowrap">
+    <input type="number" id="num-wrapcount" value="8" min="1" max="999">
+    <label for="chk-autowrap" style="cursor:pointer;">文字で自動改行</label>
+  </div>
+
+  <div class="setting-wrap" id="wrap-confirm">
+    <input type="checkbox" id="chk-confirm" checked>
+    <label for="chk-confirm" style="cursor:pointer;">消去時に確認</label>
+  </div>
 </div>
 
 <div id="hint">
-  <span>【画面の空白どこでも】 左クリック → 1挿入</span>
-  <span>右クリック → 0挿入</span>
-  <span>【キーボード】 ← → ↑ ↓ → カーソル移動</span>
-  <span>Backspace / Delete → 削除</span>
+  <span>【画面の空白どこでも】 左クリック → 1挿入 / 右クリック → 0挿入</span>
+  <span>【キーボード】 0 や 1 キー → 数値挿入</span>
+  <span>【カーソル移動】 ← → ↑ ↓ キー</span>
+  <span>【その他】 Enter → 改行 / Backspace・Delete → 削除</span>
 </div>
 
 <div id="p2p-accordion">
@@ -352,6 +390,13 @@
   const newlineBtn = document.getElementById('btn-newline');
   const clearBtn = document.getElementById('btn-clear');
   const copyBtn = document.getElementById('btn-copy');
+  
+  const chkConfirm = document.getElementById('chk-confirm');
+  const wrapConfirm = document.getElementById('wrap-confirm');
+  
+  const chkAutowrap = document.getElementById('chk-autowrap');
+  const numWrapcount = document.getElementById('num-wrapcount');
+  const wrapAutowrap = document.getElementById('wrap-autowrap');
 
   // ── 状態管理 ─────────────────────────────────
   let myBits = [];      // 自分の入力配列 (0, 1, '\n')
@@ -364,12 +409,17 @@
 
   const STORAGE_KEY_ID = 'binaryPad.myId';
   const STORAGE_KEY_BITS = 'binaryPad.myBits';
+  const STORAGE_KEY_CONFIRM = 'binaryPad.needConfirm';
+  const STORAGE_KEY_AUTOWRAP_ON = 'binaryPad.autoWrapOn';
+  const STORAGE_KEY_AUTOWRAP_VAL = 'binaryPad.autoWrapVal';
+  
   const APP_TAG = 'binary-pad-webrtc-dual';
   const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
 
   // ── 初期化 ───────────────────────────────────
   initializeIds();
   restoreBits();
+  restoreSettings();
   renderMyPane();
   renderPeerPane();
   updateStatus('未接続');
@@ -385,11 +435,29 @@
   peerIDInput.addEventListener('input', sanitizeBinaryInput);
   myIDBox.addEventListener('input', sanitizeBinaryInput);
 
-  // ── キーボードイベント（移動・削除・改行） ──────
+  // 設定変更時の保存、およびツールバー領域クリック時の入力判定ブロック
+  chkConfirm.addEventListener('change', () => localStorage.setItem(STORAGE_KEY_CONFIRM, chkConfirm.checked ? '1' : '0'));
+  wrapConfirm.addEventListener('click', (e) => e.stopPropagation());
+  
+  chkAutowrap.addEventListener('change', () => localStorage.setItem(STORAGE_KEY_AUTOWRAP_ON, chkAutowrap.checked ? '1' : '0'));
+  numWrapcount.addEventListener('input', () => {
+    let val = parseInt(numWrapcount.value, 10);
+    if (isNaN(val) || val < 1) val = 1;
+    localStorage.setItem(STORAGE_KEY_AUTOWRAP_VAL, val.toString());
+  });
+  wrapAutowrap.addEventListener('click', (e) => e.stopPropagation());
+
+  // ── キーボードイベント（入力・移動・削除） ────────
   window.addEventListener('keydown', (event) => {
     if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') return;
 
-    if (event.key === 'ArrowLeft') {
+    if (event.key === '0') {
+      event.preventDefault();
+      insertBit(0);
+    } else if (event.key === '1') {
+      event.preventDefault();
+      insertBit(1);
+    } else if (event.key === 'ArrowLeft') {
       event.preventDefault();
       if (myCursorIdx > 0) { myCursorIdx--; renderMyPane(); }
     } else if (event.key === 'ArrowRight') {
@@ -429,7 +497,8 @@
     return target.tagName === 'BUTTON' || 
            target.tagName === 'INPUT' || 
            target.tagName === 'TEXTAREA' || 
-           target.id === 'p2p-toggle';
+           target.id === 'p2p-toggle' ||
+           target.closest('.setting-wrap') !== null;
   }
 
   // ── ツールバーのボタン処理 ──────────────────
@@ -437,7 +506,9 @@
   newlineBtn.addEventListener('click', (e) => { e.stopPropagation(); insertBit('\n'); });
   clearBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (!confirm('自分の入力をすべて消去しますか？')) return;
+    if (chkConfirm.checked) {
+      if (!confirm('自分の入力をすべて消去しますか？')) return;
+    }
     myBits = [];
     myCursorIdx = 0;
     saveBits();
@@ -454,6 +525,18 @@
   function insertBit(val) {
     myBits.splice(myCursorIdx, 0, val);
     myCursorIdx++;
+
+    // 自動改行チェック（0または1が挿入されたときのみ判定、改行自体の挿入時は無視）
+    if (val !== '\n' && chkAutowrap.checked) {
+      const limit = parseInt(numWrapcount.value, 10) || 8;
+      if (getCurrentLineLength() > limit) {
+        // 現在位置の一歩手前（今入れたビットの直前）に改行を挟む
+        myCursorIdx--; 
+        myBits.splice(myCursorIdx, 0, '\n');
+        myCursorIdx += 2; // 改行とビットを飛び越えて次に進める
+      }
+    }
+
     saveBits();
     renderMyPane();
     broadcastState();
@@ -476,7 +559,23 @@
     broadcastState();
   }
 
-  // 上下矢印キーの疑似行移動ロジック
+  // 現在のカーソル位置がある「行」の文字数を数える
+  function getCurrentLineLength() {
+    let len = 0;
+    // カーソル位置から左に向かって最初の改行か先頭まで走査
+    for (let i = myCursorIdx - 1; i >= 0; i--) {
+      if (myBits[i] === '\n') break;
+      len++;
+    }
+    // カーソル位置から右に向かって最初の改行か末尾まで走査
+    for (let i = myCursorIdx; i < myBits.length; i++) {
+      if (myBits[i] === '\n') break;
+      len++;
+    }
+    return len;
+  }
+
+  // 行移動のロジック
   function moveVertical(direction) {
     const lines = myBits.join('').split('\n');
     let accumulated = 0;
@@ -491,7 +590,7 @@
         currentChIdx = myCursorIdx - start;
         break;
       }
-      accumulated += lines[i].length + 1; // +1は '\n' の分
+      accumulated += lines[i].length + 1;
     }
 
     const targetLineIdx = currentLineIdx + direction;
@@ -508,7 +607,7 @@
     renderMyPane();
   }
 
-  // ── 描画処理（カーソル表示の動的生成） ──────────
+  // ── 描画処理 ─────────────────────────────────
   function renderMyPane() {
     myOutput.innerHTML = '';
     
@@ -571,10 +670,17 @@
     myBits = /^[01\n]*$/.test(saved) ? saved.split('') : [];
     myCursorIdx = myBits.length;
   }
+  function restoreSettings() {
+    // 消去確認
+    chkConfirm.checked = (localStorage.getItem(STORAGE_KEY_CONFIRM) !== '0');
+    // 自動改行 (デフォルトオフ)
+    chkAutowrap.checked = (localStorage.getItem(STORAGE_KEY_AUTOWRAP_ON) === '1');
+    numWrapcount.value = localStorage.getItem(STORAGE_KEY_AUTOWRAP_VAL) || '8';
+  }
 
   // ── WebRTC 通信処理 ───────────────────────────
   saveIDBtn.addEventListener('click', (e) => { e.stopPropagation(); const value = normalizeBinaryId(myIDBox.value); if (!value) { alert('自分のIDは 0 と 1 のみで入力してください'); return; } myIDBox.value = value; localStorage.setItem(STORAGE_KEY_ID, value); updateStatus('自分のIDを保存しました'); });
-  makeOfferBtn.addEventListener('click', async (e) => { e.stopPropagation(); try { const myId = ensureMyId(); const peerId = normalizeBinaryId(peerIDInput.value); if (!peerId) { alert('相手のIDを入力してください'); return; } role = 'offerer'; resetPeerOnly(); const pc = createPeer(); channel = pc.createDataChannel('binary-pad-dual'); attachChannel(channel); updateStatus('接続コードを生成中…'); const offer = await pc.createOffer(); await pc.setLocalDescription(offer); updateLocalBox(); updateStatus('offerコードを生成しました。数秒待って更新が止まったらコピーして相手へ送ってください。'); } catch (error) { handleError('接続コード生成に失敗しました', error); } });
+  makeOfferBtn.addEventListener('click', async (e) => { e.stopPropagation(); try { const myId = ensureMyId(); const peerId = normalizeBinaryId(peerIDInput.value); if (!peerId) { alert('相手的IDを入力してください'); return; } role = 'offerer'; resetPeerOnly(); const pc = createPeer(); channel = pc.createDataChannel('binary-pad-dual'); attachChannel(channel); updateStatus('接続コードを生成中…'); const offer = await pc.createOffer(); await pc.setLocalDescription(offer); updateLocalBox(); updateStatus('offerコードを生成しました。数秒待って更新が止まったらコピーして相手へ送ってください。'); } catch (error) { handleError('接続コード生成に失敗しました', error); } });
   applyBtn.addEventListener('click', async (e) => { e.stopPropagation(); try { const myId = ensureMyId(); const incoming = decodeSignal(remoteBox.value); validateSignal(incoming); const incomingTo = normalizeBinaryId(incoming.to || ''); const incomingFrom = normalizeBinaryId(incoming.from || ''); if (incomingTo && incomingTo !== myId) { throw new Error('このコードは別のID宛てです'); } if (incoming.kind === 'offer') { role = 'answerer'; resetPeerOnly(); const pc = createPeer(); if (incomingFrom) peerIDInput.value = incomingFrom; updateStatus('offerを適用中…'); await pc.setRemoteDescription(incoming.description); const answer = await pc.createAnswer(); await pc.setLocalDescription(answer); updateLocalBox(); updateStatus('offerを受信しました。数秒待って更新が止まったらanswerコードを相手へ返してください。'); return; } if (incoming.kind === 'answer') { if (!peer) throw new Error('先に発信側で offer コードを生成してください'); if (peer.signalingState !== 'have-local-offer') { throw new Error('現在の状態では answer を適用できません'); } updateStatus('answerを適用中…'); await peer.setRemoteDescription(incoming.description); updateStatus('answerを適用しました。接続完了を待っています…'); return; } } catch (error) { handleError('相手コード適用に失敗しました', error); } });
   copyLocalBtn.addEventListener('click', async (e) => { e.stopPropagation(); if (!localBox.value.trim()) { alert('まだ生成コードがありません'); return; } await copyText(localBox.value, copyLocalBtn, '✓ コードコピー済み'); });
   resetConnectionBtn.addEventListener('click', (e) => { e.stopPropagation(); resetPeerOnly(); localBox.value = ''; remoteBox.value = ''; role = null; peerBits = []; renderPeerPane(); updateStatus('接続をリセットしました'); });
