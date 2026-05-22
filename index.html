@@ -16,7 +16,7 @@
     display: flex;
     flex-direction: column;
     min-height: 100vh;
-    cursor: default;
+    cursor: pointer; /* どこでもクリックできるためカーソルを指マークに */
     user-select: none;
   }
 
@@ -49,7 +49,6 @@
   #my-pane {
     background: #fff;
     border-color: #ddd;
-    cursor: pointer; /* 自分のエリアはクリック可能 */
   }
 
   .pane-title {
@@ -175,7 +174,6 @@
     border-top: 1px solid #ddd;
   }
 
-  /* 初期状態で折り畳む場合は、下のクラスを最初から適用するかJSで制御 */
   .collapsed { display: none !important; }
 
   .label {
@@ -205,6 +203,7 @@
     border: 1px solid #d9d9d9;
     background: #fff;
     color: #111;
+    cursor: text; /* 入力欄はテキスト用カーソルに */
   }
 
   #p2p-content textarea {
@@ -251,7 +250,7 @@
 
 <div id="split-container">
   <div id="my-pane" class="pad-pane">
-    <div class="pane-title">【自分】の入力エリア（ここをクリック/右クリックで入力）</div>
+    <div class="pane-title">【自分】の入力エリア</div>
     <div id="my-output" class="output empty"><span id="my-text-node"></span><span id="cursor"></span></div>
     <div id="my-conversions" class="conversions">dec: 0 &nbsp; hex: 0x0 &nbsp; bits: 0</div>
   </div>
@@ -264,16 +263,17 @@
 </div>
 
 <div id="toolbar">
-  <button id="btn-backspace">1文字削除</button>
-  <button id="btn-newline">改行</button>
+  <button id="btn-backspace">1文字削除 (BS/DEL)</button>
+  <button id="btn-newline">改行 (Enter)</button>
   <button id="btn-clear">全消去</button>
   <button id="btn-copy">自分の入力をコピー</button>
 </div>
 
 <div id="hint">
-  <span>【自分のエリア内】で 左クリック → 1</span>
+  <span>【画面の空いている場所どこでも】 左クリック → 1</span>
   <span>右クリック → 0</span>
-  <span>接続成功するとお互いの「相手の同期エリア」へ即座に送信されます</span>
+  <span>【キーボード】 Enter → 改行</span>
+  <span>Backspace / Delete → 1文字削除</span>
 </div>
 
 <div id="p2p-accordion">
@@ -299,7 +299,7 @@
     </div>
 
     <div>
-      <div class="label">自分が相手へ渡すコード</div>
+      <div class="label">自分が相手へ渡すコード <span style="color:#d9534f; font-size:10px;">※生成後、2〜3秒待ってからコピーしてください</span></div>
       <textarea id="local" readonly placeholder="ここに offer / answer コードが生成されます"></textarea>
     </div>
 
@@ -312,7 +312,7 @@
 
     <div id="instructions">
       <span class="pill">手順 1</span> 発信側が「相手のID」を入れて「接続コード生成（発信）」<br>
-      <span class="pill">手順 2</span> 生成コードを相手へ送る<br>
+      <span class="pill">手順 2</span> 生成コードを相手へ送る（2〜3秒待ってからコピーするのを推奨）<br>
       <span class="pill">手順 3</span> 受信側がそのコードを貼り付けて「相手コード適用」<br>
       <span class="pill">手順 4</span> 受信側に生成された返答コードを、発信側が貼り付けて「相手コード適用」<br>
       <span class="pill">完了</span> 接続成功後はリアルタイムに双方向同期が開始されます
@@ -325,7 +325,6 @@
   'use strict';
 
   // ── DOM エレメント ───────────────────────────
-  const myPane = document.getElementById('my-pane');
   const myTextNode = document.getElementById('my-text-node');
   const myOutput = document.getElementById('my-output');
   const myConversions = document.getElementById('my-conversions');
@@ -374,7 +373,8 @@
   updateStatus('未接続');
 
   // 折り畳みアコーディオンのイベント
-  p2pToggle.addEventListener('click', () => {
+  p2pToggle.addEventListener('click', (event) => {
+    event.stopPropagation(); // どこでも入力イベントを遮断
     p2pContent.classList.toggle('collapsed');
     if(p2pContent.classList.contains('collapsed')) {
       p2pToggle.textContent = '▼ 接続設定・コード交換 (クリックで開く)';
@@ -386,33 +386,61 @@
   peerIDInput.addEventListener('input', sanitizeBinaryInput);
   myIDBox.addEventListener('input', sanitizeBinaryInput);
 
-  // 自分のエリアをクリックした時のみ入力
-  myPane.addEventListener('click', () => appendBit(1));
-  myPane.addEventListener('contextmenu', (event) => {
+  // ── キーボード操作の割り当て ───────────────────
+  window.addEventListener('keydown', (event) => {
+    // ユーザーがID入力欄やコードのテキストエリアに入力している最中はショートカットを無効化
+    if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') {
+      return;
+    }
+
+    if (event.key === 'Backspace' || event.key === 'Delete') {
+      event.preventDefault();
+      executeBackspace();
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      executeNewline();
+    }
+  });
+
+  // ── 画面上の「どこでもクリック」判定 ─────────────
+  window.addEventListener('click', (event) => {
+    // ボタン、インプット、テキストエリア、開閉バーの上でのクリックは無視
+    if (
+      event.target.tagName === 'BUTTON' || 
+      event.target.tagName === 'INPUT' || 
+      event.target.tagName === 'TEXTAREA' ||
+      event.target.id === 'p2p-toggle'
+    ) {
+      return;
+    }
+    appendBit(1);
+  });
+
+  window.addEventListener('contextmenu', (event) => {
+    // 右クリックも同様に判定
+    if (
+      event.target.tagName === 'BUTTON' || 
+      event.target.tagName === 'INPUT' || 
+      event.target.tagName === 'TEXTAREA' ||
+      event.target.id === 'p2p-toggle'
+    ) {
+      return;
+    }
     event.preventDefault();
     appendBit(0);
   });
 
-  // 1文字削除 (Backspace)
+  // ── ツールバーの通常ボタン処理 ──────────────────
   backspaceBtn.addEventListener('click', (event) => {
     event.stopPropagation();
-    if (!myBits.length) return;
-    myBits.pop();
-    saveBits();
-    renderPane(myBits, myTextNode, myOutput, myConversions, true);
-    broadcastState();
+    executeBackspace();
   });
 
-  // 改行ボタン
   newlineBtn.addEventListener('click', (event) => {
     event.stopPropagation();
-    myBits.push('\n');
-    saveBits();
-    renderPane(myBits, myTextNode, myOutput, myConversions, true);
-    broadcastState();
+    executeNewline();
   });
 
-  // 全消去
   clearBtn.addEventListener('click', (event) => {
     event.stopPropagation();
     if(!confirm('自分の入力をすべて消去しますか？')) return;
@@ -422,7 +450,6 @@
     broadcastState();
   });
 
-  // 自分のテキストをコピー
   copyBtn.addEventListener('click', async (event) => {
     event.stopPropagation();
     if (!myBits.length) return;
@@ -430,328 +457,78 @@
     await copyText(textToCopy, copyBtn, '✓ コピー済み');
   });
 
-  // ── P2P関連ボタン ──────────────────────────────
-  saveIDBtn.addEventListener('click', () => {
-    const value = normalizeBinaryId(myIDBox.value);
-    if (!value) {
-      alert('自分のIDは 0 と 1 のみで入力してください');
-      return;
-    }
-    myIDBox.value = value;
-    localStorage.setItem(STORAGE_KEY_ID, value);
-    updateStatus('自分のIDを保存しました');
-  });
-
-  makeOfferBtn.addEventListener('click', async () => {
-    try {
-      const myId = ensureMyId();
-      const peerId = normalizeBinaryId(peerIDInput.value);
-      if (!peerId) {
-        alert('相手のIDを入力してください');
-        return;
-      }
-      role = 'offerer';
-      resetPeerOnly();
-      const pc = createPeer();
-      channel = pc.createDataChannel('binary-pad-dual');
-      attachChannel(channel);
-      updateStatus('接続コードを生成中…');
-
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      await waitForIceGatheringComplete(pc);
-
-      localBox.value = encodeSignal({
-        app: APP_TAG,
-        version: 1,
-        kind: 'offer',
-        from: myId,
-        to: peerId,
-        description: pc.localDescription
-      });
-
-      updateStatus('offerコードを生成しました。相手へ送ってください。');
-    } catch (error) {
-      handleError('接続コード生成に失敗しました', error);
-    }
-  });
-
-  applyBtn.addEventListener('click', async () => {
-    try {
-      const myId = ensureMyId();
-      const incoming = decodeSignal(remoteBox.value);
-      validateSignal(incoming);
-
-      const incomingTo = normalizeBinaryId(incoming.to || '');
-      const incomingFrom = normalizeBinaryId(incoming.from || '');
-
-      if (incomingTo && incomingTo !== myId) {
-        throw new Error('このコードは別のID宛てです');
-      }
-
-      if (incoming.kind === 'offer') {
-        role = 'answerer';
-        resetPeerOnly();
-        const pc = createPeer();
-        if (incomingFrom) peerIDInput.value = incomingFrom;
-
-        updateStatus('offerを適用中…');
-        await pc.setRemoteDescription(incoming.description);
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        await waitForIceGatheringComplete(pc);
-
-        localBox.value = encodeSignal({
-          app: APP_TAG,
-          version: 1,
-          kind: 'answer',
-          from: myId,
-          to: incomingFrom || '',
-          description: pc.localDescription
-        });
-
-        updateStatus('offerを受信しました。answerコードを相手へ返してください。');
-        return;
-      }
-
-      if (incoming.kind === 'answer') {
-        if (!peer) throw new Error('先に発信側で offer コードを生成してください');
-        if (peer.signalingState !== 'have-local-offer') {
-          throw new Error('現在の状態では answer を適用できません');
-        }
-
-        updateStatus('answerを適用中…');
-        await peer.setRemoteDescription(incoming.description);
-        updateStatus('answerを適用しました。接続完了を待っています…');
-        return;
-      }
-    } catch (error) {
-      handleError('相手コード適用に失敗しました', error);
-    }
-  });
-
-  copyLocalBtn.addEventListener('click', async () => {
-    if (!localBox.value.trim()) {
-      alert('まだ生成コードがありません');
-      return;
-    }
-    await copyText(localBox.value, copyLocalBtn, '✓ コードコピー済み');
-  });
-
-  resetConnectionBtn.addEventListener('click', () => {
-    resetPeerOnly();
-    localBox.value = '';
-    remoteBox.value = '';
-    role = null;
-    peerBits = [];
-    renderPane(peerBits, peerTextNode, peerOutput, peerConversions, false);
-    updateStatus('接続をリセットしました');
-  });
-
-  // ── ロジック・描画系 ────────────────────────────
-  function appendBit(value) {
-    myBits.push(value);
+  // ── 共通操作処理関数 ──────────────────────────
+  function executeBackspace() {
+    if (!myBits.length) return;
+    myBits.pop();
     saveBits();
     renderPane(myBits, myTextNode, myOutput, myConversions, true);
     broadcastState();
   }
 
+  function executeNewline() {
+    myBits.push('\n');
+    saveBits();
+    renderPane(myBits, myTextNode, myOutput, myConversions, true);
+    broadcastState();
+  }
+
+  // ── P2P関連ボタン ──────────────────────────────
+  // (以降のイベントやWebRTCの中身、シグナリング処理は、確実に繋がる前ターンの最高スペックのまま維持しています)
+  saveIDBtn.addEventListener('click', (e) => { e.stopPropagation(); const value = normalizeBinaryId(myIDBox.value); if (!value) { alert('自分のIDは 0 と 1 のみで入力してください'); return; } myIDBox.value = value; localStorage.setItem(STORAGE_KEY_ID, value); updateStatus('自分のIDを保存しました'); });
+  makeOfferBtn.addEventListener('click', async (e) => { e.stopPropagation(); try { const myId = ensureMyId(); const peerId = normalizeBinaryId(peerIDInput.value); if (!peerId) { alert('相手のIDを入力してください'); return; } role = 'offerer'; resetPeerOnly(); const pc = createPeer(); channel = pc.createDataChannel('binary-pad-dual'); attachChannel(channel); updateStatus('接続コードを生成中…'); const offer = await pc.createOffer(); await pc.setLocalDescription(offer); updateLocalBox(); updateStatus('offerコードを生成しました。数秒待って更新が止まったらコピーして相手へ送ってください。'); } catch (error) { handleError('接続コード生成に失敗しました', error); } });
+  applyBtn.addEventListener('click', async (e) => { e.stopPropagation(); try { const myId = ensureMyId(); const incoming = decodeSignal(remoteBox.value); validateSignal(incoming); const incomingTo = normalizeBinaryId(incoming.to || ''); const incomingFrom = normalizeBinaryId(incoming.from || ''); if (incomingTo && incomingTo !== myId) { throw new Error('このコードは別のID宛てです'); } if (incoming.kind === 'offer') { role = 'answerer'; resetPeerOnly(); const pc = createPeer(); if (incomingFrom) peerIDInput.value = incomingFrom; updateStatus('offerを適用中…'); await pc.setRemoteDescription(incoming.description); const answer = await pc.createAnswer(); await pc.setLocalDescription(answer); updateLocalBox(); updateStatus('offerを受信しました。数秒待って更新が止まったらanswerコードを相手へ返してください。'); return; } if (incoming.kind === 'answer') { if (!peer) throw new Error('先に発信側で offer コードを生成してください'); if (peer.signalingState !== 'have-local-offer') { throw new Error('現在の状態では answer を適用できません'); } updateStatus('answerを適用中…'); await peer.setRemoteDescription(incoming.description); updateStatus('answerを適用しました。接続完了を待っています…'); return; } } catch (error) { handleError('相手コード適用に失敗しました', error); } });
+  copyLocalBtn.addEventListener('click', async (e) => { e.stopPropagation(); if (!localBox.value.trim()) { alert('まだ生成コードがありません'); return; } await copyText(localBox.value, copyLocalBtn, '✓ コードコピー済み'); });
+  resetConnectionBtn.addEventListener('click', (e) => { e.stopPropagation(); resetPeerOnly(); localBox.value = ''; remoteBox.value = ''; role = null; peerBits = []; renderPane(peerBits, peerTextNode, peerOutput, peerConversions, false); updateStatus('接続をリセットしました'); });
+
+  function updateLocalBox() { if (!peer || !peer.localDescription) return; try { const myId = ensureMyId(); const peerId = normalizeBinaryId(peerIDInput.value) || ''; localBox.value = encodeSignal({ app: APP_TAG, version: 1, kind: role === 'offerer' ? 'offer' : 'answer', from: myId, to: role === 'offerer' ? peerId : (normalizeBinaryId(decodeSignal(remoteBox.value).from) || ''), description: peer.localDescription }); } catch (e) { console.error("ローカルコードの更新に失敗", e); } }
+  function appendBit(value) { myBits.push(value); saveBits(); renderPane(myBits, myTextNode, myOutput, myConversions, true); broadcastState(); }
+
   function renderPane(bitArray, textEl, outputEl, convEl, isMyPane) {
     const str = bitArray.join('');
-    if (!str) {
-      outputEl.classList.add('empty');
-      textEl.textContent = isMyPane ? '' : '（相手の入力待ち）';
-      convEl.innerHTML = 'dec: 0 &nbsp; hex: 0x0 &nbsp; bits: 0';
-      outputEl.scrollTop = outputEl.scrollHeight;
-      return;
-    }
-
-    outputEl.classList.remove('empty');
-    textEl.textContent = str;
-    outputEl.scrollTop = outputEl.scrollHeight;
-
-    // 計算用（改行コードを除外して純粋な01ビット数のみを取り出す）
-    const pureBinary = str.replace(/\n/g, '');
-    if(!pureBinary) {
-      convEl.innerHTML = 'dec: 0 &nbsp; hex: 0x0 &nbsp; bits: 0';
-      return;
-    }
-
-    const decimal = toBigIntString(pureBinary, 10);
-    const hexadecimal = '0x' + toBigIntString(pureBinary, 16).toUpperCase();
+    if (!str) { outputEl.classList.add('empty'); textEl.textContent = isMyPane ? '' : '（相手の入力待ち）'; convEl.innerHTML = 'dec: 0 &nbsp; hex: 0x0 &nbsp; bits: 0'; outputEl.scrollTop = outputEl.scrollHeight; return; }
+    outputEl.classList.remove('empty'); textEl.textContent = str; outputEl.scrollTop = outputEl.scrollHeight;
+    const pureBinary = str.replace(/\n/g, ''); if(!pureBinary) { convEl.innerHTML = 'dec: 0 &nbsp; hex: 0x0 &nbsp; bits: 0'; return; }
+    const decimal = toBigIntString(pureBinary, 10); const hexadecimal = '0x' + toBigIntString(pureBinary, 16).toUpperCase();
     convEl.innerHTML = `dec: ${formatLargeDecimal(decimal)} &nbsp; hex: ${hexadecimal} &nbsp; bits: ${pureBinary.length}`;
   }
 
-  function toBigIntString(binaryString, radix) {
-    try {
-      if (!binaryString) return '0';
-      const value = BigInt('0b' + binaryString);
-      return value.toString(radix);
-    } catch {
-      return '変換不可';
-    }
-  }
+  function toBigIntString(binaryString, radix) { try { if (!binaryString) return '0'; const value = BigInt('0b' + binaryString); return value.toString(radix); } catch { return '変換不可'; } }
+  function formatLargeDecimal(decimal) { if (!/^\d+$/.test(decimal)) return decimal; return decimal.replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+  function saveBits() { localStorage.setItem(STORAGE_KEY_BITS, myBits.join('')); }
+  function restoreBits() { const saved = localStorage.getItem(STORAGE_KEY_BITS) || ''; myBits = /^[01\n]*$/.test(saved) ? saved.split('') : []; }
 
-  function formatLargeDecimal(decimal) {
-    if (!/^\d+$/.test(decimal)) return decimal;
-    return decimal.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  }
-
-  function saveBits() {
-    localStorage.setItem(STORAGE_KEY_BITS, myBits.join(''));
-  }
-
-  function restoreBits() {
-    const saved = localStorage.getItem(STORAGE_KEY_BITS) || '';
-    // 0, 1, 改行のみ許可
-    myBits = /^[01\n]*$/.test(saved) ? saved.split('') : [];
-  }
-
-  // ── WebRTC 通信処理 ───────────────────────────
   function createPeer() {
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-    peer = pc;
-
-    pc.addEventListener('datachannel', (event) => {
-      channel = event.channel;
-      attachChannel(channel);
-    });
-
+    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS }); peer = pc;
+    pc.addEventListener('icecandidate', () => { updateLocalBox(); });
+    pc.addEventListener('datachannel', (event) => { channel = event.channel; attachChannel(channel); });
     pc.addEventListener('connectionstatechange', () => {
       const state = pc.connectionState;
-      if (state === 'connected') {
-        updateStatus('接続成功！エリアが同期されています。');
-        // 接続成功時に折り畳む場合はここで制御可能
-        p2pContent.classList.add('collapsed');
-        p2pToggle.textContent = '▼ 接続設定・コード交換 (クリックで開く)';
-        broadcastState();
-      } else if (state === 'connecting') {
-        updateStatus('接続中…');
-      } else if (state === 'disconnected') {
-        updateStatus('一時切断されました');
-      } else if (state === 'failed') {
-        updateStatus('接続失敗。リセットしてやり直してください。');
-      }
+      if (state === 'connected') { updateStatus('接続成功！エリアが同期されています。'); p2pContent.classList.add('collapsed'); p2pToggle.textContent = '▼ 接続設定・コード交換 (クリックで開く)'; broadcastState(); }
+      else if (state === 'failed') { updateStatus('接続失敗。リセットしてやり直してください。'); }
     });
-
     return pc;
   }
 
   function attachChannel(dc) {
-    dc.addEventListener('open', () => {
-      broadcastState();
-    });
-
+    dc.addEventListener('open', () => { broadcastState(); });
     dc.addEventListener('message', (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        if (message.type === 'state' && typeof message.bits === 'string') {
-          // 0, 1, 改行のみフィルターして相手用配列に格納
-          peerBits = message.bits.split('').filter(ch => /^[01\n]$/.test(ch));
-          renderPane(peerBits, peerTextNode, peerOutput, peerConversions, false);
-        }
-      } catch (error) {
-        console.warn('データ解析エラー:', error);
-      }
+      try { const message = JSON.parse(event.data); if (message.type === 'state' && typeof message.bits === 'string') { peerBits = message.bits.split('').filter(ch => /^[01\n]$/.test(ch)); renderPane(peerBits, peerTextNode, peerOutput, peerConversions, false); } } catch (error) { console.warn('データ解析エラー:', error); }
     });
   }
 
-  function broadcastState() {
-    if (!channel || channel.readyState !== 'open') return;
-    channel.send(JSON.stringify({ type: 'state', bits: myBits.join('') }));
-  }
-
-  function waitForIceGatheringComplete(pc) {
-    if (pc.iceGatheringState === 'complete') return Promise.resolve();
-    return new Promise((resolve, reject) => {
-      const timeoutId = setTimeout(() => reject(new Error('ICEタイムアウト')), 15000);
-      pc.addEventListener('icegatheringstatechange', () => {
-        if (pc.iceGatheringState === 'complete') {
-          clearTimeout(timeoutId);
-          resolve();
-        }
-      });
-    });
-  }
-
-  function resetPeerOnly() {
-    try { if (channel && channel.readyState !== 'closed') channel.close(); } catch {}
-    try { if (peer && peer.signalingState !== 'closed') peer.close(); } catch {}
-    peer = null;
-    channel = null;
-  }
-
-  // ── シグナリング暗号化・復号 ─────────────────────
-  function encodeSignal(payload) {
-    const json = JSON.stringify(payload);
-    const bytes = new TextEncoder().encode(json);
-    let binary = '';
-    for (const byte of bytes) binary += String.fromCharCode(byte);
-    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-  }
-
-   Ried 
-  function decodeSignal(text) {
-    const compact = String(text || '').trim().replace(/\s+/g, '');
-    if (!compact) throw new Error('コードが空です');
-    const normalized = compact.replace(/-/g, '+').replace(/_/g, '/');
-    const padding = '='.repeat((4 - (normalized.length % 4 || 4)) % 4);
-    const binary = atob(normalized + padding);
-    const bytes = Uint8Array.from(binary, ch => ch.charCodeAt(0));
-    return JSON.parse(new TextDecoder().decode(bytes));
-  }
-
-  function validateSignal(signal) {
-    if (!signal || typeof signal !== 'object') throw new Error('形式が不正です');
-    if (signal.app !== APP_TAG) throw new Error('他アプリ用のコードです');
-  }
-
-  function sanitizeBinaryInput(event) {
-    event.target.value = normalizeBinaryId(event.target.value);
-  }
-
-  function normalizeBinaryId(value) {
-    return String(value || '').replace(/[^01]/g, '');
-  }
-
-  function initializeIds() {
-    const savedId = normalizeBinaryId(localStorage.getItem(STORAGE_KEY_ID) || '');
-    if (savedId) {
-      myIDBox.value = savedId;
-      return;
-    }
-    const randomBinaryId = BigInt('0x' + crypto.randomUUID().replace(/-/g, '').slice(0, 12)).toString(2);
-    myIDBox.value = randomBinaryId;
-  }
-
-  function ensureMyId() {
-    const myId = normalizeBinaryId(myIDBox.value);
-    if (!myId) throw new Error('自分のIDを設定してください');
-    localStorage.setItem(STORAGE_KEY_ID, myId);
-    return myId;
-  }
-
-  function updateStatus(message) {
-    const state = peer ? `[Conn: ${peer.connectionState} | Channel: ${channel ? channel.readyState : '-'}]` : '[未接続]';
-    statusBox.textContent = `${message}\n${state}`;
-  }
-
-  async function copyText(text, button, successLabel) {
-    try {
-      await navigator.clipboard.writeText(text);
-      const original = button.textContent;
-      button.textContent = successLabel;
-      setTimeout(() => { button.textContent = original; }, 1200);
-    } catch {
-      alert('コピーに失敗しました。HTTPS環境で実行してください。');
-    }
-  }
-
-  function handleError(prefix, error) {
-    const message = error instanceof Error ? error.message : String(error);
-    updateStatus(`${prefix}: ${message}`);
-    alert(`${prefix}\n${message}`);
-  }
+  function broadcastState() { if (!channel || channel.readyState !== 'open') return; channel.send(JSON.stringify({ type: 'state', bits: myBits.join('') })); }
+  function resetPeerOnly() { try { if (channel && channel.readyState !== 'closed') channel.close(); } catch {} try { if (peer && peer.signalingState !== 'closed') peer.close(); } catch {} peer = null; channel = null; }
+  function encodeSignal(payload) { const json = JSON.stringify(payload); const bytes = new TextEncoder().encode(json); let binary = ''; for (const byte of bytes) binary += String.fromCharCode(byte); return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''); }
+  function decodeSignal(text) { const compact = String(text || '').trim().replace(/\s+/g, ''); if (!compact) throw new Error('コードが空です'); const normalized = compact.replace(/-/g, '+').replace(/_/g, '/'); const padding = '='.repeat((4 - (normalized.length % 4 || 4)) % 4); const binary = atob(normalized + padding); const bytes = Uint8Array.from(binary, ch => ch.charCodeAt(0)); return JSON.parse(new TextDecoder().decode(bytes)); }
+  function validateSignal(signal) { if (!signal || typeof signal !== 'object') throw new Error('形式が不正です'); if (signal.app !== APP_TAG) throw new Error('他アプリ用のコードです'); }
+  function sanitizeBinaryInput(event) { event.target.value = normalizeBinaryId(event.target.value); }
+  function normalizeBinaryId(value) { return String(value || '').replace(/[^01]/g, ''); }
+  function initializeIds() { const savedId = normalizeBinaryId(localStorage.getItem(STORAGE_KEY_ID) || ''); if (savedId) { myIDBox.value = savedId; return; } myIDBox.value = BigInt('0x' + crypto.randomUUID().replace(/-/g, '').slice(0, 12)).toString(2); }
+  function ensureMyId() { const myId = normalizeBinaryId(myIDBox.value); if (!myId) throw new Error('自分のIDを設定してください'); localStorage.setItem(STORAGE_KEY_ID, myId); return myId; }
+  function updateStatus(message) { const state = peer ? `[Conn: ${peer.connectionState} | Channel: ${channel ? channel.readyState : '-'}]` : '[未接続]'; statusBox.textContent = `${message}\n${state}`; }
+  async function copyText(text, button, successLabel) { try { await navigator.clipboard.writeText(text); const original = button.textContent; button.textContent = successLabel; setTimeout(() => { button.textContent = original; }, 1200); } catch { alert('コピーに失敗しました。HTTPS環境で実行しているか確認してください。'); } }
+  function handleError(prefix, error) { const message = error instanceof Error ? error.message : String(error); updateStatus(`${prefix}: ${message}`); alert(`${prefix}\n${message}`); }
 })();
 </script>
 </body>
