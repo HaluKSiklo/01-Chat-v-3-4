@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Binary Input Pad - Auto-Connect WebRTC</title>
+<title>Binary Input Pad - Stable Auto WebRTC</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
@@ -121,7 +121,7 @@
 
   #hint { font-size: 10px; color: #999; padding: 6px 16px; background: #f8f8f8; display: flex; flex-wrap: wrap; gap: 14px; letter-spacing: 0.03em; border-top: 1px solid #eee; }
 
-  /* ── 自動P2P接続セクション ───────────────── */
+  /* ── 確定式・自動P2P接続セクション ───────────────── */
   #p2p-section {
     border-top: 1px solid #ddd;
     background: #fcfcfc;
@@ -131,9 +131,9 @@
     gap: 8px;
   }
   .label { font-size: 11px; color: #666; letter-spacing: 0.04em; }
-  .inline-row { display: flex; gap: 8px; }
+  .inline-row { display: flex; gap: 8px; align-items: flex-end; }
   .inline-row > * { flex: 1; }
-  #p2p-section input {
+  #p2p-section input, #p2p-section select {
     width: 100%;
     font-family: inherit;
     font-size: 13px;
@@ -142,8 +142,25 @@
     border: 1px solid #ccc;
     background: #fff;
     color: #111;
-    cursor: text;
   }
+  #p2p-section input { cursor: text; }
+  #p2p-section select { cursor: pointer; }
+  
+  #btn-connect-trigger {
+    background: #333 !important;
+    color: #fff !important;
+    border: none;
+    padding: 9px 12px;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: background 0.1s;
+  }
+  #btn-connect-trigger:hover { background: #555 !important; }
+  #btn-connect-trigger:active { background: #111 !important; }
+
   #status {
     font-size: 11px;
     padding: 8px;
@@ -205,15 +222,25 @@
 <div id="p2p-section">
   <div class="inline-row">
     <div>
-      <div class="label">自分のID (0と1で指定)</div>
+      <div class="label">自分のID (0と1)</div>
       <input id="myID" placeholder="例: 001">
     </div>
     <div>
-      <div class="label">接続したい相手のID (0と1で指定)</div>
+      <div class="label">相手のID (0と1)</div>
       <input id="peerID" placeholder="例: 010">
     </div>
+    <div>
+      <div class="label">自分の接続役割</div>
+      <select id="sel-role">
+        <option value="offerer">発信側 (先にOfferを投げる)</option>
+        <option value="answerer">受信側 (待機してAnswerを返す)</option>
+      </select>
+    </div>
+    <div>
+      <button id="btn-connect-trigger">確定して接続開始 (Enter)</button>
+    </div>
   </div>
-  <div id="status">IDを入力してください。お互いのIDがクロスで一致すると自動接続します。</div>
+  <div id="status">設定を完了し、「確定して接続開始」を押すかEnterキーを叩いてください。</div>
 </div>
 
 <script>
@@ -228,6 +255,8 @@
 
   const myIDBox = document.getElementById('myID');
   const peerIDInput = document.getElementById('peerID');
+  const selRole = document.getElementById('sel-role');
+  const btnConnectTrigger = document.getElementById('btn-connect-trigger');
   const statusBox = document.getElementById('status');
   
   const backspaceBtn = document.getElementById('btn-backspace');
@@ -250,17 +279,17 @@
 
   let peer = null;
   let channel = null;
-  let sseSource = null; // 自動中継用
+  let sseSource = null;
 
   const STORAGE_KEY_MY_ID = 'binaryPad.myIdAuto';
   const STORAGE_KEY_PEER_ID = 'binaryPad.peerIdAuto';
+  const STORAGE_KEY_ROLE = 'binaryPad.roleAuto';
   const STORAGE_KEY_BITS = 'binaryPad.myBits';
   const STORAGE_KEY_CONFIRM = 'binaryPad.needConfirm';
   const STORAGE_KEY_AUTOWRAP_ON = 'binaryPad.autoWrapOn';
   const STORAGE_KEY_AUTOWRAP_VAL = 'binaryPad.autoWrapVal';
   const STORAGE_KEY_AUTOWRAP_CODE = 'binaryPad.autoWrapCode';
 
-  // 公開されている中継中継サービスを利用 (WebRTCシグナリング用)
   const SIGNALING_URL = 'https://broker.anywhere.co.id/signal'; 
 
   // ── 初期化 ───────────────────────────────────
@@ -268,10 +297,20 @@
   restoreSettings();
   renderMyPane();
   renderPeerPane();
-  startSignalingListener(); // 自動接続待ち受け開始
+  updateStatus('待機中。設定を確認して確定してください。');
 
-  peerIDInput.addEventListener('input', (e) => { sanitizeBinaryInput(e); localStorage.setItem(STORAGE_KEY_PEER_ID, e.target.value); startSignalingListener(); });
-  myIDBox.addEventListener('input', (e) => { sanitizeBinaryInput(e); localStorage.setItem(STORAGE_KEY_MY_ID, e.target.value); startSignalingListener(); });
+  // 入力制御
+  peerIDInput.addEventListener('input', (e) => { sanitizeBinaryInput(e); localStorage.setItem(STORAGE_KEY_PEER_ID, e.target.value); });
+  myIDBox.addEventListener('input', (e) => { sanitizeBinaryInput(e); localStorage.setItem(STORAGE_KEY_MY_ID, e.target.value); });
+  selRole.addEventListener('change', () => localStorage.setItem(STORAGE_KEY_ROLE, selRole.value));
+
+  // 入力欄でEnterを押したときも確定処理を走らせる
+  const stopPropAndEnter = (e) => { e.stopPropagation(); if(e.key === 'Enter') { e.preventDefault(); processConnectionTrigger(); } };
+  myIDBox.addEventListener('keydown', stopPropAndEnter);
+  peerIDInput.addEventListener('keydown', stopPropAndEnter);
+  selRole.addEventListener('keydown', stopPropAndEnter);
+
+  btnConnectTrigger.addEventListener('click', (e) => { e.stopPropagation(); processConnectionTrigger(); });
 
   chkConfirm.addEventListener('change', () => localStorage.setItem(STORAGE_KEY_CONFIRM, chkConfirm.checked ? '1' : '0'));
   wrapConfirm.addEventListener('click', (e) => e.stopPropagation());
@@ -286,7 +325,7 @@
 
   // ── キーボード・クリック処理 (既存維持) ──────
   window.addEventListener('keydown', (event) => {
-    if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') return;
+    if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA' || event.target.tagName === 'SELECT') return;
     if (event.key === '0') { event.preventDefault(); insertBit(0); }
     else if (event.key === '1') { event.preventDefault(); insertBit(1); }
     else if (event.key === 'ArrowLeft') { event.preventDefault(); if (myCursorIdx > 0) { myCursorIdx--; renderMyPane(); } }
@@ -300,7 +339,7 @@
 
   window.addEventListener('click', (event) => { if (isIgnoredElement(event.target)) return; insertBit(1); });
   window.addEventListener('contextmenu', (event) => { if (isIgnoredElement(event.target)) return; event.preventDefault(); insertBit(0); });
-  function isIgnoredElement(target) { return target.tagName === 'BUTTON' || target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'OPTION' || target.closest('.setting-wrap') !== null; }
+  function isIgnoredElement(target) { return target.tagName === 'BUTTON' || target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'OPTION' || target.closest('.setting-wrap') !== null || target.id === 'btn-connect-trigger'; }
 
   backspaceBtn.addEventListener('click', (e) => { e.stopPropagation(); executeBackspace(); });
   newlineBtn.addEventListener('click', (e) => { e.stopPropagation(); insertBit('\n'); });
@@ -387,84 +426,70 @@
     selWrapcode.value = localStorage.getItem(STORAGE_KEY_AUTOWRAP_CODE) || 'nl';
     myIDBox.value = localStorage.getItem(STORAGE_KEY_MY_ID) || '';
     peerIDInput.value = localStorage.getItem(STORAGE_KEY_PEER_ID) || '';
+    selRole.value = localStorage.getItem(STORAGE_KEY_ROLE) || 'offerer';
   }
 
-  // ── 【重要】自動WebRTCシグナリング通信処理 ──────────────────
-  let isConnecting = false;
-
+  // ── 確定駆動型・WebRTC自動シグナリング処理 ──────────────────
   function updateStatus(msg) {
     const state = peer ? `[WebRTC: ${peer.connectionState}]` : '[未接続]';
     statusBox.textContent = `${msg} ${state}`;
   }
 
-  // サーバーの特定チャンネルを監視する仕組み
-  function startSignalingListener() {
+  function processConnectionTrigger() {
     const myId = normalizeBinaryId(myIDBox.value);
     const peerId = normalizeBinaryId(peerIDInput.value);
+    const role = selRole.value;
 
     if (!myId || !peerId) {
-      updateStatus('IDを入力してください。お互いが一致すると自動接続します。');
+      alert('自分と相手のIDを両方入力してください。');
+      return;
+    }
+    if (myId === peerId) {
+      alert('自分のIDと相手のIDに同じものは指定できません。');
       return;
     }
 
-    if (sseSource) sseSource.close();
-    if (peer && peer.connectionState === 'connected') return;
+    // 古い接続を完全にクリーンアップ
+    if (sseSource) { sseSource.close(); sseSource = null; }
+    if (peer) { try { peer.close(); } catch {} peer = null; channel = null; }
 
-    updateStatus(`自動接続待機中... (あなたのID: ${myId} -> 相手: ${peerId})`);
+    updateStatus(`【確定】自動同期チャネルを開設中... (Mode: ${role === 'offerer' ? '発信' : '受信'})`);
 
-    // 簡易的なシグナリング中継（EventSourceを使用）
-    // 相手が自分宛てに投げた「offer」や「answer」を自動検知する
+    // 1. まず共通シグナリングの「自分のID用待受ルーム」をリスン（EventSource）開始
     sseSource = new EventSource(`${SIGNALING_URL}/listen?room=${myId}`);
     sseSource.onmessage = async (event) => {
       try {
         const data = JSON.parse(event.data);
-        if (data.from !== peerId) return; // 指定した相手以外からの通信は無視
+        if (data.from !== peerId) return; // 指定した相手以外からのシグナルは完全に遮断
 
-        if (data.type === 'offer' && (!peer || peer.signalingState === 'stable')) {
-          updateStatus('相手からの接続(Offer)を自動検知しました。応答中...');
+        if (data.type === 'offer' && role === 'answerer') {
+          updateStatus('相手からのOfferを自動検知しました。Answerを返送中...');
           await handleIncomingOffer(data.sdp, myId, peerId);
-        } else if (data.type === 'answer' && peer) {
-          updateStatus('相手からの応答(Answer)を自動適用しました。接続完了を待っています...');
+        } else if (data.type === 'answer' && role === 'offerer' && peer) {
+          updateStatus('相手からのAnswerを自動検知しました。適用中...');
           await peer.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: data.sdp }));
         }
-      } catch (e) {
-        console.error("シグナリング受信エラー", e);
-      }
+      } catch (e) { console.error("受信データ適用エラー", e); }
     };
 
-    // 先に部屋に入った側（または能動的）にOfferを作らせるためのトリガー（3秒毎に確認）
-    // 先行側が自動でOfferを出し、後行側がそれをキャッチして自動でAnswerを返す
-    if (!isConnecting) {
-      isConnecting = true;
-      setTimeout(() => {
-        if (!peer || peer.connectionState !== 'connected') {
-          triggerAutoOffer(myId, peerId);
-        }
-        isConnecting = false;
-      }, 2000);
-    }
-  }
+    // 2. もし自分が「発信側（offerer）」に設定されていた場合のみ、能動的にOfferを生成してシグナリングへ投げる
+    if (role === 'offerer') {
+      setTimeout(async () => {
+        try {
+          updateStatus('発信側として新規接続(Offer)を自動生成し、送信しています...');
+          const pc = createPeerConnection(myId, peerId);
+          channel = pc.createDataChannel('binary-pad-auto');
+          attachChannel(channel);
 
-  async function triggerAutoOffer(myId, peerId) {
-    if (peer && peer.connectionState === 'connected') return;
-    // IDの数値比較で、常に片方がOffer担当（offerer）、片方がAnswer担当になるよう役割競合を防ぐ
-    if (BigInt('0b' + myId) > BigInt('0b' + peerId)) {
-      return; // 自分の方がIDが大きい場合は相手からのOfferを待つ
-    }
-
-    try {
-      updateStatus('接続を開始(Offerを送信)しています...');
-      const pc = createPeerConnection(myId, peerId);
-      channel = pc.createDataChannel('binary-pad-auto');
-      attachChannel(channel);
-
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-
-      // 相手の待受ルーム（相手のID名）へOfferを送信
-      await sendSignal(peerId, { type: 'offer', from: myId, sdp: offer.sdp });
-    } catch (err) {
-      console.warn("Offer自動送信リトライ中...", err);
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          
+          // 相手の部屋（相手のID）へOfferを送出
+          await sendSignal(peerId, { type: 'offer', from: myId, sdp: offer.sdp });
+        } catch (err) { updateStatus(`Offer送信失敗: ${err.message}`); }
+      }, 500);
+    } else {
+      updateStatus('受信側として待機中... 相手からの発信(Offer)を確実に待っています。');
     }
   }
 
@@ -476,20 +501,18 @@
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
 
-      // 相手の待受ルームへAnswerを送信
+      // 相手の部屋へAnswerを返出
       await sendSignal(peerId, { type: 'answer', from: myId, sdp: answer.sdp });
-    } catch (err) {
-      console.error("Answer自動返信失敗", err);
-    }
+      updateStatus('Answerの自動返信完了。WebRTCピア接続を確立しています...');
+    } catch (err) { updateStatus(`Answer返信エラー: ${err.message}`); }
   }
 
   function createPeerConnection(myId, peerId) {
-    if (peer) { try { peer.close(); } catch {} }
     const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
     peer = pc;
 
     pc.onicecandidate = (e) => {
-      // ICE候補が確定したら、最新のSDP（ローカル記述）を再送して接続率を高める
+      // ICE候補が集まるたび、あるいは確定した段階でSDPを最送出してパケット到達性を保証
       if (!e.candidate && pc.localDescription) {
         sendSignal(peerId, { type: pc.localDescription.type, from: myId, sdp: pc.localDescription.sdp });
       }
@@ -502,12 +525,11 @@
 
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'connected') {
-        updateStatus('接続成功！同期されています。');
-        if (sseSource) { sseSource.close(); sseSource = null; } // 繋がったら中継サーバーとの接続は切断
+        updateStatus('接続成功！安全に同期されました。');
+        if (sseSource) { sseSource.close(); sseSource = null; } // 繋がったらサーバー監視は即クローズしてP2P一本にする
         broadcastState();
       } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-        updateStatus('接続が切れました。再接続を試みます...');
-        setTimeout(startSignalingListener, 3000);
+        updateStatus('接続が切断されました。再度Enterで接続をやり直せます。');
       }
     };
     return pc;
@@ -523,13 +545,12 @@
           if (peerBits.length === 1 && peerBits[0] === '') peerBits = [];
           renderPeerPane();
         }
-      } catch (error) { console.warn('解析エラー:', error); }
+      } catch (error) { console.warn('P2Pデータ解析エラー:', error); }
     };
   }
 
   function broadcastState() { if (channel && channel.readyState === 'open') channel.send(JSON.stringify({ type: 'state', bits: myBits.join('') })); }
 
-  // サーバーへ接続信号を書き込む関数
   async function sendSignal(toRoom, payload) {
     try {
       await fetch(`${SIGNALING_URL}/send?room=${toRoom}`, {
@@ -537,7 +558,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-    } catch (e) { console.warn("シグナル送信失敗", e); }
+    } catch (e) { console.warn("シグナルサーバー送信エラー", e); }
   }
 
   function sanitizeBinaryInput(event) { event.target.value = normalizeBinaryId(event.target.value); }
