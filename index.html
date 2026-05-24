@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Binary Input Pad - Manual WebRTC with 5bit Decoder</title>
+<title>01-Chat - Mouse Optimized Edition</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
@@ -138,6 +138,31 @@
 
   #hint { font-size: 10px; color: #999; padding: 6px 16px; background: #f8f8f8; display: flex; flex-wrap: wrap; gap: 14px; letter-spacing: 0.03em; border-top: 1px solid #eee; }
 
+  /* ── 案③：マウス専用の巨大削除エリア ───────────── */
+  #mouse-delete-bar {
+    background: #fff0f0;
+    border-top: 1px solid #fcc;
+    padding: 12px;
+    text-align: center;
+  }
+  #btn-mouse-backspace {
+    width: 100%;
+    max-width: 600px;
+    padding: 14px;
+    background: #ff5252;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    transition: background 0.1s, transform 0.05s;
+  }
+  #btn-mouse-backspace:hover { background: #ff3333; }
+  #btn-mouse-backspace:active { background: #d32f2f; transform: scale(0.99); }
+
   /* ── 手動コピペ式 WebRTC セクション ───────────────── */
   #webrtc-section {
     border-top: 1px solid #ddd;
@@ -232,12 +257,21 @@
     <input type="checkbox" id="chk-decoder">
     <label for="chk-decoder" style="cursor:pointer; font-weight:bold; color:#2c3e50;">5bitコードを文字に自動変換</label>
   </div>
+
+  <div class="setting-wrap" id="wrap-swapclick">
+    <input type="checkbox" id="chk-swapclick">
+    <label for="chk-swapclick" style="cursor:pointer; color:#b33939; font-weight:bold;">左右クリックを反転</label>
+  </div>
 </div>
 
 <div id="hint">
-  <span>【画面の空白どこでも】 左クリック → 1挿入 / 右クリック → 0挿入</span>
+  <span id="hint-click-text">【画面の空白どこでも】 左クリック → 1挿入 / 右クリック → 0挿入</span>
   <span>【キーボード】 0 や 1 キー → 数値挿入</span>
   <span>【カーソル移動】 ← → ↑ ↓ キー</span>
+</div>
+
+<div id="mouse-delete-bar">
+  <button id="btn-mouse-backspace">【マウス専用】直前の1文字を削除 (Backspace)</button>
 </div>
 
 <div id="webrtc-section">
@@ -311,6 +345,10 @@
   const wrapAutowrap = document.getElementById('wrap-autowrap');
   const chkDecoder = document.getElementById('chk-decoder');
   const wrapDecoder = document.getElementById('wrap-decoder');
+  const chkSwapClick = document.getElementById('chk-swapclick');
+  const wrapSwapClick = document.getElementById('wrap-swapclick');
+  const hintClickText = document.getElementById('hint-click-text');
+  const btnMouseBackspace = document.getElementById('btn-mouse-backspace');
 
   // ── 状態管理 ─────────────────────────────────
   let myBits = [];
@@ -326,6 +364,7 @@
   const STORAGE_KEY_AUTOWRAP_VAL = 'binaryPad.autoWrapVal';
   const STORAGE_KEY_AUTOWRAP_CODE = 'binaryPad.autoWrapCode';
   const STORAGE_KEY_DECODER_ON = 'binaryPad.decoderOn';
+  const STORAGE_KEY_SWAP_CLICK = 'binaryPad.swapClick';
 
   // ── 初期化 ───────────────────────────────────
   restoreBits();
@@ -352,13 +391,27 @@
   });
   wrapDecoder.addEventListener('click', (e) => e.stopPropagation());
 
+  chkSwapClick.addEventListener('change', () => {
+    localStorage.setItem(STORAGE_KEY_SWAP_CLICK, chkSwapClick.checked ? '1' : '0');
+    updateHintText();
+  });
+  wrapSwapClick.addEventListener('click', (e) => e.stopPropagation());
+
   // WebRTC用イベントリスナー
   btnGenOffer.addEventListener('click', (e) => { e.stopPropagation(); initWebRTCOffer(); });
   btnCopyLocal.addEventListener('click', async (e) => { e.stopPropagation(); if(txtLocalSdp.value) await copyText(txtLocalSdp.value, btnCopyLocal, '✓ コピー完了'); });
   btnApplyOffer.addEventListener('click', (e) => { e.stopPropagation(); handleIncomingOffer(); });
   btnApplyAnswer.addEventListener('click', (e) => { e.stopPropagation(); handleIncomingAnswer(); });
-  txtRemoteSdp.addEventListener('keydown', (e) => e.stopPropagation()); // テキストエリア内の入力をバイナリパッドが誤検知するのを防止
+  txtRemoteSdp.addEventListener('keydown', (e) => e.stopPropagation());
   txtRemoteSdp.addEventListener('click', (e) => e.stopPropagation());
+
+  // 案③：マウス専用削除バーのリスナー
+  btnMouseBackspace.addEventListener('click', (e) => {
+    e.stopPropagation();
+    executeBackspace();
+  });
+  document.getElementById('mouse-delete-bar').addEventListener('click', (e) => e.stopPropagation());
+  document.getElementById('mouse-delete-bar').addEventListener('contextmenu', (e) => e.preventDefault());
 
   // ── キーボード・クリック処理 ─────────────────
   window.addEventListener('keydown', (event) => {
@@ -374,9 +427,38 @@
     else if (event.key === 'Enter') { event.preventDefault(); insertBit('\n'); }
   });
 
-  window.addEventListener('click', (event) => { if (isIgnoredElement(event.target)) return; insertBit(1); });
-  window.addEventListener('contextmenu', (event) => { if (isIgnoredElement(event.target)) return; event.preventDefault(); insertBit(0); });
-  function isIgnoredElement(target) { return target.tagName === 'BUTTON' || target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'OPTION' || target.closest('.setting-wrap') !== null || target.tagName === 'TEXTAREA'; }
+  // マウスクリック時のメイン入力処理
+  window.addEventListener('click', (event) => {
+    if (isIgnoredElement(event.target)) return;
+    // 反転チェック時は、左クリックで「0」を入れる
+    if (chkSwapClick.checked) {
+      insertBit(0);
+    } else {
+      insertBit(1);
+    }
+  });
+
+  window.addEventListener('contextmenu', (event) => {
+    if (isIgnoredElement(event.target)) return;
+    event.preventDefault();
+    // 反転チェック時は、右クリックで「1」を入れる
+    if (chkSwapClick.checked) {
+      insertBit(1);
+    } else {
+      insertBit(0);
+    }
+  });
+
+  function isIgnoredElement(target) {
+    return target.tagName === 'BUTTON' || 
+           target.tagName === 'INPUT' || 
+           target.tagName === 'SELECT' || 
+           target.tagName === 'OPTION' || 
+           target.closest('.setting-wrap') !== null || 
+           target.tagName === 'TEXTAREA' ||
+           target.id === 'btn-mouse-backspace' ||
+           target.id === 'mouse-delete-bar';
+  }
 
   backspaceBtn.addEventListener('click', (e) => { e.stopPropagation(); executeBackspace(); });
   newlineBtn.addEventListener('click', (e) => { e.stopPropagation(); insertBit('\n'); });
@@ -393,7 +475,7 @@
     myBits.splice(myCursorIdx, 0, val);
     myCursorIdx++;
     if ((val === 0 || val === 1) && chkAutowrap.checked) {
-      const limit = parseInt(numWrapcount.value, 10) || 5; // 5bitコードに最適化
+      const limit = parseInt(numWrapcount.value, 10) || 5;
       if (getCurrentLineLength() > limit) {
         myCursorIdx--;
         const mode = selWrapcode.value;
@@ -426,31 +508,19 @@
     myCursorIdx = targetGlobalIdx + Math.min(currentChIdx, lines[targetLineIdx].length); renderMyPane();
   }
 
-  // ── 【新機能】5ビットコード・デコーダー（自動翻訳） ──────
+  // ── 5ビットコード・デコーダー（自動翻訳） ──────
   function decode5BitBinary(bitArray) {
-    // 0と1の純粋な文字列を抽出
     const pureBinary = bitArray.join('').replace(/[^01]/g, '');
     let decodedText = "";
-    let isNumMode = false; // 初期状態はアルファベット（文字）モード
+    let isNumMode = false;
 
-    // 5ビット（5文字）ずつスライスして解析
     for (let i = 0; i < pureBinary.length; i += 5) {
-      if (i + 5 > pureBinary.length) {
-        // 5つに満たない端数はタイピング中とみなして一旦スキップ
-        break; 
-      }
+      if (i + 5 > pureBinary.length) break; 
       const chunk = pureBinary.substring(i, i + 5);
 
-      if (chunk === "11111") {
-        isNumMode = true; // 数字モードへシフト
-        continue;
-      }
-      if (chunk === "11110") {
-        isNumMode = false; // アルファベット（文字）モードへ復帰
-        continue;
-      }
+      if (chunk === "11111") { isNumMode = true; continue; }
+      if (chunk === "11110") { isNumMode = false; continue; }
 
-      // 辞書引き
       if (isNumMode) {
         decodedText += (CODE_MAP_NUM[chunk] || "🔲");
       } else {
@@ -465,8 +535,16 @@
     myDecoded.style.display = displayMode;
     peerDecoded.style.display = displayMode;
     if (chkDecoder.checked) {
-      myDecoded.textContent = "【翻訳翻訳】: " + decode5BitBinary(myBits);
-      peerDecoded.textContent = "【翻訳翻訳】: " + decode5BitBinary(peerBits);
+      myDecoded.textContent = "【翻訳】: " + decode5BitBinary(myBits);
+      peerDecoded.textContent = "【翻訳】: " + decode5BitBinary(peerBits);
+    }
+  }
+
+  function updateHintText() {
+    if (chkSwapClick.checked) {
+      hintClickText.textContent = "【画面の空白どこでも】 左クリック → 0挿入 / 右クリック → 1挿入 (反転中)";
+    } else {
+      hintClickText.textContent = "【画面の空白どこでも】 左クリック → 1挿入 / 右クリック → 0挿入";
     }
   }
 
@@ -497,7 +575,7 @@
   
   function updateConversions(bitArray, convEl) {
     const pureBinary = bitArray.join('').replace(/[^01]/g, '');
-    if (!pureBinary) { convEl.innerHTML = 'dec: 0 &nbsp; hex: 0x0 &nbsp; bits: 0'; return; }
+    if (!pureBinary) { convEl.innerHTML = 'dec: 0 & &nbsp; hex: 0x0 &nbsp; bits: 0'; return; }
     try {
       const val = BigInt('0b' + pureBinary);
       convEl.innerHTML = `dec: ${val.toString(10).replace(/\B(?=(\d{3})+(?!\d))/g, ',')} &nbsp; hex: 0x${val.toString(16).toUpperCase()} &nbsp; bits: ${pureBinary.length}`;
@@ -509,10 +587,12 @@
   function restoreSettings() {
     chkConfirm.checked = (localStorage.getItem(STORAGE_KEY_CONFIRM) !== '0');
     chkAutowrap.checked = (localStorage.getItem(STORAGE_KEY_AUTOWRAP_ON) === '1');
-    numWrapcount.value = localStorage.getItem(STORAGE_KEY_AUTOWRAP_VAL) || '5'; // デフォルト値を5に設定
+    numWrapcount.value = localStorage.getItem(STORAGE_KEY_AUTOWRAP_VAL) || '5';
     selWrapcode.value = localStorage.getItem(STORAGE_KEY_AUTOWRAP_CODE) || 'space';
     chkDecoder.checked = (localStorage.getItem(STORAGE_KEY_DECODER_ON) === '1');
+    chkSwapClick.checked = (localStorage.getItem(STORAGE_KEY_SWAP_CLICK) === '1');
     toggleDecoderVisibility();
+    updateHintText();
   }
 
   // ── 手動コピペ式 WebRTC ロジック ─────────────────
@@ -527,7 +607,6 @@
     peer = pc;
 
     pc.onicecandidate = (e) => {
-      // ICE候補が集まりきったら最新のSDPテキストエリアに更新
       if (!e.candidate) {
         txtLocalSdp.value = btoa(JSON.stringify(pc.localDescription));
         updateStatus('シグナリングコードの生成が完了しました！コピーして相手に渡してください。');
@@ -550,7 +629,6 @@
     return pc;
   }
 
-  // 発信側処理
   async function initWebRTCOffer() {
     try {
       updateStatus('オファーコードを生成中...');
@@ -563,7 +641,6 @@
     } catch (err) { updateStatus(`エラー: ${err.message}`); }
   }
 
-  // 受信側処理
   async function handleIncomingOffer() {
     const rawInput = txtRemoteSdp.value.trim();
     if (!rawInput) return alert('相手のオファーコードを入力してください。');
@@ -576,13 +653,11 @@
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       
-      // 生成されたアンサーを左側エリアに書き出す
       txtLocalSdp.value = btoa(JSON.stringify(pc.localDescription));
-      updateStatus('アンサーを生成しました！左側のコードをコピーして相手（発信側）に送り返してください。');
+      updateStatus('アンサーを生成しました！左側のコードをコピーして相手に送り返してください。');
     } catch (err) { alert('オファー適用失敗。コードが不完全な可能性があります。'); }
   }
 
-  // 発信側で最終アンサー適用
   async function handleIncomingAnswer() {
     const rawInput = txtRemoteSdp.value.trim();
     if (!rawInput) return alert('相手のアンサーコードを入力してください。');
