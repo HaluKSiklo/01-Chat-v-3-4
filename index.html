@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>01-Chat - Mouse Optimized Edition</title>
+<title>01-Chat - Pure Input Edition</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
@@ -138,31 +138,6 @@
 
   #hint { font-size: 10px; color: #999; padding: 6px 16px; background: #f8f8f8; display: flex; flex-wrap: wrap; gap: 14px; letter-spacing: 0.03em; border-top: 1px solid #eee; }
 
-  /* ── 案③：マウス専用の巨大削除エリア ───────────── */
-  #mouse-delete-bar {
-    background: #fff0f0;
-    border-top: 1px solid #fcc;
-    padding: 12px;
-    text-align: center;
-  }
-  #btn-mouse-backspace {
-    width: 100%;
-    max-width: 600px;
-    padding: 14px;
-    background: #ff5252;
-    color: white;
-    border: none;
-    border-radius: 6px;
-    font-family: inherit;
-    font-size: 14px;
-    font-weight: bold;
-    cursor: pointer;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    transition: background 0.1s, transform 0.05s;
-  }
-  #btn-mouse-backspace:hover { background: #ff3333; }
-  #btn-mouse-backspace:active { background: #d32f2f; transform: scale(0.99); }
-
   /* ── 手動コピペ式 WebRTC セクション ───────────────── */
   #webrtc-section {
     border-top: 1px solid #ddd;
@@ -230,9 +205,7 @@
 </div>
 
 <div id="toolbar">
-  <button id="btn-backspace">削除 (BS)</button>
   <button id="btn-newline">改行 (Enter)</button>
-  <button id="btn-clear">全消去</button>
   <button id="btn-copy">自分の入力をコピー</button>
   <button id="btn-copy-peer" disabled>相手の入力をコピー</button>
   
@@ -246,11 +219,6 @@
       <option value="empty-line">空行を挿入 (\n\n)</option>
       <option value="comma">カンマ[,]挿入 + \n</option>
     </select>
-  </div>
-
-  <div class="setting-wrap" id="wrap-confirm">
-    <input type="checkbox" id="chk-confirm" checked>
-    <label for="chk-confirm" style="cursor:pointer;">消去時に確認</label>
   </div>
 
   <div class="setting-wrap" id="wrap-decoder">
@@ -268,10 +236,6 @@
   <span id="hint-click-text">【画面の空白どこでも】 左クリック → 1挿入 / 右クリック → 0挿入</span>
   <span>【キーボード】 0 や 1 キー → 数値挿入</span>
   <span>【カーソル移動】 ← → ↑ ↓ キー</span>
-</div>
-
-<div id="mouse-delete-bar">
-  <button id="btn-mouse-backspace">【マウス専用】直前の1文字を削除 (Backspace)</button>
 </div>
 
 <div id="webrtc-section">
@@ -331,14 +295,10 @@
   const btnApplyAnswer = document.getElementById('btn-apply-answer');
   const statusBox = document.getElementById('status');
   
-  const backspaceBtn = document.getElementById('btn-backspace');
   const newlineBtn = document.getElementById('btn-newline');
-  const clearBtn = document.getElementById('btn-clear');
   const copyBtn = document.getElementById('btn-copy');
   const copyPeerBtn = document.getElementById('btn-copy-peer');
   
-  const chkConfirm = document.getElementById('chk-confirm');
-  const wrapConfirm = document.getElementById('wrap-confirm');
   const chkAutowrap = document.getElementById('chk-autowrap');
   const numWrapcount = document.getElementById('num-wrapcount');
   const selWrapcode = document.getElementById('sel-wrapcode');
@@ -348,7 +308,6 @@
   const chkSwapClick = document.getElementById('chk-swapclick');
   const wrapSwapClick = document.getElementById('wrap-swapclick');
   const hintClickText = document.getElementById('hint-click-text');
-  const btnMouseBackspace = document.getElementById('btn-mouse-backspace');
 
   // ── 状態管理 ─────────────────────────────────
   let myBits = [];
@@ -359,7 +318,6 @@
   let channel = null;
 
   const STORAGE_KEY_BITS = 'binaryPad.myBits';
-  const STORAGE_KEY_CONFIRM = 'binaryPad.needConfirm';
   const STORAGE_KEY_AUTOWRAP_ON = 'binaryPad.autoWrapOn';
   const STORAGE_KEY_AUTOWRAP_VAL = 'binaryPad.autoWrapVal';
   const STORAGE_KEY_AUTOWRAP_CODE = 'binaryPad.autoWrapCode';
@@ -371,10 +329,6 @@
   restoreSettings();
   renderMyPane();
   renderPeerPane();
-
-  // 設定のイベントリスナー
-  chkConfirm.addEventListener('change', () => localStorage.setItem(STORAGE_KEY_CONFIRM, chkConfirm.checked ? '1' : '0'));
-  wrapConfirm.addEventListener('click', (e) => e.stopPropagation());
   
   chkAutowrap.addEventListener('change', () => localStorage.setItem(STORAGE_KEY_AUTOWRAP_ON, chkAutowrap.checked ? '1' : '0'));
   numWrapcount.addEventListener('input', () => {
@@ -405,14 +359,6 @@
   txtRemoteSdp.addEventListener('keydown', (e) => e.stopPropagation());
   txtRemoteSdp.addEventListener('click', (e) => e.stopPropagation());
 
-  // 案③：マウス専用削除バーのリスナー
-  btnMouseBackspace.addEventListener('click', (e) => {
-    e.stopPropagation();
-    executeBackspace();
-  });
-  document.getElementById('mouse-delete-bar').addEventListener('click', (e) => e.stopPropagation());
-  document.getElementById('mouse-delete-bar').addEventListener('contextmenu', (e) => e.preventDefault());
-
   // ── キーボード・クリック処理 ─────────────────
   window.addEventListener('keydown', (event) => {
     if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA' || event.target.tagName === 'SELECT') return;
@@ -422,31 +368,18 @@
     else if (event.key === 'ArrowRight') { event.preventDefault(); if (myCursorIdx < myBits.length) { myCursorIdx++; renderMyPane(); } }
     else if (event.key === 'ArrowUp') { event.preventDefault(); moveVertical(-1); }
     else if (event.key === 'ArrowDown') { event.preventDefault(); moveVertical(1); }
-    else if (event.key === 'Backspace') { event.preventDefault(); executeBackspace(); }
-    else if (event.key === 'Delete') { event.preventDefault(); executeDelete(); }
     else if (event.key === 'Enter') { event.preventDefault(); insertBit('\n'); }
   });
 
-  // マウスクリック時のメイン入力処理
   window.addEventListener('click', (event) => {
     if (isIgnoredElement(event.target)) return;
-    // 反転チェック時は、左クリックで「0」を入れる
-    if (chkSwapClick.checked) {
-      insertBit(0);
-    } else {
-      insertBit(1);
-    }
+    if (chkSwapClick.checked) { insertBit(0); } else { insertBit(1); }
   });
 
   window.addEventListener('contextmenu', (event) => {
     if (isIgnoredElement(event.target)) return;
     event.preventDefault();
-    // 反転チェック時は、右クリックで「1」を入れる
-    if (chkSwapClick.checked) {
-      insertBit(1);
-    } else {
-      insertBit(0);
-    }
+    if (chkSwapClick.checked) { insertBit(1); } else { insertBit(0); }
   });
 
   function isIgnoredElement(target) {
@@ -455,18 +388,10 @@
            target.tagName === 'SELECT' || 
            target.tagName === 'OPTION' || 
            target.closest('.setting-wrap') !== null || 
-           target.tagName === 'TEXTAREA' ||
-           target.id === 'btn-mouse-backspace' ||
-           target.id === 'mouse-delete-bar';
+           target.tagName === 'TEXTAREA';
   }
 
-  backspaceBtn.addEventListener('click', (e) => { e.stopPropagation(); executeBackspace(); });
   newlineBtn.addEventListener('click', (e) => { e.stopPropagation(); insertBit('\n'); });
-  clearBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    if (chkConfirm.checked && !confirm('自分の入力をすべて消去しますか？')) return;
-    myBits = []; myCursorIdx = 0; saveBits(); renderMyPane(); broadcastState();
-  });
   copyBtn.addEventListener('click', async (e) => { e.stopPropagation(); if (myBits.length) await copyText(myBits.join(''), copyBtn, '✓ コピー済み'); });
   copyPeerBtn.addEventListener('click', async (e) => { e.stopPropagation(); if (peerBits.length) await copyText(peerBits.join(''), copyPeerBtn, '✓ 相手の入力をコピーした'); });
 
@@ -488,14 +413,13 @@
     saveBits(); renderMyPane(); broadcastState();
   }
 
-  function executeBackspace() { if (myCursorIdx === 0) return; myBits.splice(myCursorIdx - 1, 1); myCursorIdx--; saveBits(); renderMyPane(); broadcastState(); }
-  function executeDelete() { if (myCursorIdx === myBits.length) return; myBits.splice(myCursorIdx, 1); saveBits(); renderMyPane(); broadcastState(); }
   function getCurrentLineLength() {
     let len = 0;
     for (let i = myCursorIdx - 1; i >= 0; i--) { if (myBits[i] === '\n') break; if (myBits[i] === 0 || myBits[i] === 1) len++; }
     for (let i = myCursorIdx; i < myBits.length; i++) { if (myBits[i] === '\n') break; if (myBits[i] === 0 || myBits[i] === 1) len++; }
     return len;
   }
+  
   function moveVertical(direction) {
     const lines = myBits.join('').split('\n'); let accumulated = 0; let currentLineIdx = 0; let currentChIdx = 0;
     for (let i = 0; i < lines.length; i++) {
@@ -575,7 +499,7 @@
   
   function updateConversions(bitArray, convEl) {
     const pureBinary = bitArray.join('').replace(/[^01]/g, '');
-    if (!pureBinary) { convEl.innerHTML = 'dec: 0 & &nbsp; hex: 0x0 &nbsp; bits: 0'; return; }
+    if (!pureBinary) { convEl.innerHTML = 'dec: 0 &nbsp; hex: 0x0 &nbsp; bits: 0'; return; }
     try {
       const val = BigInt('0b' + pureBinary);
       convEl.innerHTML = `dec: ${val.toString(10).replace(/\B(?=(\d{3})+(?!\d))/g, ',')} &nbsp; hex: 0x${val.toString(16).toUpperCase()} &nbsp; bits: ${pureBinary.length}`;
@@ -585,7 +509,6 @@
   function saveBits() { localStorage.setItem(STORAGE_KEY_BITS, myBits.join('')); }
   function restoreBits() { const saved = localStorage.getItem(STORAGE_KEY_BITS) || ''; myBits = saved.split(''); if (myBits.length === 1 && myBits[0] === '') myBits = []; myCursorIdx = myBits.length; }
   function restoreSettings() {
-    chkConfirm.checked = (localStorage.getItem(STORAGE_KEY_CONFIRM) !== '0');
     chkAutowrap.checked = (localStorage.getItem(STORAGE_KEY_AUTOWRAP_ON) === '1');
     numWrapcount.value = localStorage.getItem(STORAGE_KEY_AUTOWRAP_VAL) || '5';
     selWrapcode.value = localStorage.getItem(STORAGE_KEY_AUTOWRAP_CODE) || 'space';
@@ -623,7 +546,7 @@
         updateStatus('接続成功！安全に同期されています。');
         broadcastState();
       } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-        updateStatus('切断されました。再接続するにはコード交換をやり直してください。');
+        updateStatus('切断されました。再接続するにはコード交換をやり長してください。');
       }
     };
     return pc;
