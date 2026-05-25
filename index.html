@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>01-Chat - Streamlined Edition</title>
+<title>01-Chat - Username Restored Edition</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
@@ -136,6 +136,17 @@
   .setting-wrap input[type="number"] { width: 42px; padding: 2px 4px; font-family: inherit; font-size: 11px; border: 1px solid #ccc; text-align: center; cursor: text; }
   .setting-wrap select { font-family: inherit; font-size: 11px; padding: 2px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
 
+  /* ユーザー名入力フィールド */
+  .username-input {
+    padding: 4px 8px;
+    font-family: inherit;
+    font-size: 11px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    width: 100px;
+    cursor: text;
+  }
+
   #hint { font-size: 10px; color: #999; padding: 6px 16px; background: #f8f8f8; display: flex; flex-wrap: wrap; gap: 14px; letter-spacing: 0.03em; border-top: 1px solid #eee; }
 
   /* ── 手動コピペ式 WebRTC セクション ───────────────── */
@@ -190,14 +201,14 @@
 
 <div id="split-container">
   <div id="my-pane" class="pad-pane">
-    <div class="pane-title">【自分】の入力エリア</div>
+    <div class="pane-title" id="my-title">【自分】の入力エリア</div>
     <div id="my-output" class="output empty"></div>
     <div id="my-decoded" class="decoded-text-area" style="display:none;"></div>
     <div id="my-conversions" class="conversions">dec: 0 &nbsp; hex: 0x0 &nbsp; bits: 0</div>
   </div>
   
   <div id="peer-pane" class="pad-pane">
-    <div class="pane-title">【相手】の同期エリア</div>
+    <div class="pane-title" id="peer-title">【相手】の同期エリア</div>
     <div id="peer-output" class="output empty">（相手の入力待ち）</div>
     <div id="peer-decoded" class="decoded-text-area" style="display:none;"></div>
     <div id="peer-conversions" class="conversions">dec: 0 &nbsp; hex: 0x0 &nbsp; bits: 0</div>
@@ -205,6 +216,11 @@
 </div>
 
 <div id="toolbar">
+  <div class="setting-wrap" id="wrap-username">
+    <label for="txt-username" style="font-weight:bold;">ユーザー名:</label>
+    <input type="text" id="txt-username" class="username-input" value="自分" maxlength="15">
+  </div>
+
   <button id="btn-backspace">削除 (BS)</button>
   <button id="btn-newline">改行 (Enter)</button>
   <button id="btn-clear">全消去</button>
@@ -293,6 +309,8 @@
   const peerOutput = document.getElementById('peer-output');
   const peerDecoded = document.getElementById('peer-decoded');
   const peerConversions = document.getElementById('peer-conversions');
+  const myTitle = document.getElementById('my-title');
+  const peerTitle = document.getElementById('peer-title');
 
   const txtLocalSdp = document.getElementById('txt-local-sdp');
   const txtRemoteSdp = document.getElementById('txt-remote-sdp');
@@ -308,6 +326,7 @@
   const copyBtn = document.getElementById('btn-copy');
   const copyPeerBtn = document.getElementById('btn-copy-peer');
   
+  const txtUsername = document.getElementById('txt-username');
   const chkConfirm = document.getElementById('chk-confirm');
   const wrapConfirm = document.getElementById('wrap-confirm');
   const chkAutowrap = document.getElementById('chk-autowrap');
@@ -324,11 +343,13 @@
   let myBits = [];
   let myCursorIdx = 0;
   let peerBits = [];
+  let peerName = "相手";
 
   let peer = null;
   let channel = null;
 
   const STORAGE_KEY_BITS = 'binaryPad.myBits';
+  const STORAGE_KEY_USERNAME = 'binaryPad.username';
   const STORAGE_KEY_CONFIRM = 'binaryPad.needConfirm';
   const STORAGE_KEY_AUTOWRAP_ON = 'binaryPad.autoWrapOn';
   const STORAGE_KEY_AUTOWRAP_VAL = 'binaryPad.autoWrapVal';
@@ -343,6 +364,15 @@
   renderPeerPane();
 
   // 設定のイベントリスナー
+  txtUsername.addEventListener('input', () => {
+    localStorage.setItem(STORAGE_KEY_USERNAME, txtUsername.value);
+    updatePaneTitles();
+    broadcastState();
+  });
+  txtUsername.addEventListener('keydown', (e) => e.stopPropagation());
+  txtUsername.addEventListener('click', (e) => e.stopPropagation());
+  document.getElementById('wrap-username').addEventListener('click', (e) => e.stopPropagation());
+
   chkConfirm.addEventListener('change', () => localStorage.setItem(STORAGE_KEY_CONFIRM, chkConfirm.checked ? '1' : '0'));
   wrapConfirm.addEventListener('click', (e) => e.stopPropagation());
   
@@ -389,7 +419,6 @@
     else if (event.key === 'Enter') { event.preventDefault(); insertBit('\n'); }
   });
 
-  // マウスクリック時のメイン入力処理
   window.addEventListener('click', (event) => {
     if (isIgnoredElement(event.target)) return;
     if (chkSwapClick.checked) {
@@ -506,6 +535,12 @@
     }
   }
 
+  function updatePaneTitles() {
+    const name = txtUsername.value.trim() || "自分";
+    myTitle.textContent = `【自分（${name}）】の入力エリア`;
+    peerTitle.textContent = `【相手（${peerName}）】の同期エリア`;
+  }
+
   // ── 描画 ─────────────────────────────────────
   function renderMyPane() {
     myOutput.innerHTML = '';
@@ -543,6 +578,7 @@
   function saveBits() { localStorage.setItem(STORAGE_KEY_BITS, myBits.join('')); }
   function restoreBits() { const saved = localStorage.getItem(STORAGE_KEY_BITS) || ''; myBits = saved.split(''); if (myBits.length === 1 && myBits[0] === '') myBits = []; myCursorIdx = myBits.length; }
   function restoreSettings() {
+    txtUsername.value = localStorage.getItem(STORAGE_KEY_USERNAME) || '自分';
     chkConfirm.checked = (localStorage.getItem(STORAGE_KEY_CONFIRM) !== '0');
     chkAutowrap.checked = (localStorage.getItem(STORAGE_KEY_AUTOWRAP_ON) === '1');
     numWrapcount.value = localStorage.getItem(STORAGE_KEY_AUTOWRAP_VAL) || '5';
@@ -551,6 +587,7 @@
     chkSwapClick.checked = (localStorage.getItem(STORAGE_KEY_SWAP_CLICK) === '1');
     toggleDecoderVisibility();
     updateHintText();
+    updatePaneTitles();
   }
 
   // ── 手動コピペ式 WebRTC ロジック ─────────────────
@@ -635,13 +672,31 @@
         if (message.type === 'state' && typeof message.bits === 'string') {
           peerBits = message.bits.split('');
           if (peerBits.length === 1 && peerBits[0] === '') peerBits = [];
+          
+          if (message.name) {
+            peerName = message.name;
+          } else {
+            peerName = "相手";
+          }
+          
+          updatePaneTitles();
           renderPeerPane();
         }
       } catch (error) { console.warn('P2Pデータ解析エラー:', error); }
     };
   }
 
-  function broadcastState() { if (channel && channel.readyState === 'open') channel.send(JSON.stringify({ type: 'state', bits: myBits.join('') })); }
+  function broadcastState() {
+    if (channel && channel.readyState === 'open') {
+      const name = txtUsername.value.trim() || "自分";
+      channel.send(JSON.stringify({
+        type: 'state',
+        bits: myBits.join(''),
+        name: name
+      }));
+    }
+  }
+
   async function copyText(text, button, successLabel) { try { await navigator.clipboard.writeText(text); const orig = button.textContent; button.textContent = successLabel; setTimeout(() => button.textContent = orig, 1200); } catch { alert('コピー失敗。HTTPSまたはlocalhost環境であるか確認してください。'); } }
 })();
 </script>
