@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>01-Chat - Pure Input Edition</title>
+<title>01-Chat - Streamlined Edition</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
@@ -205,7 +205,9 @@
 </div>
 
 <div id="toolbar">
+  <button id="btn-backspace">削除 (BS)</button>
   <button id="btn-newline">改行 (Enter)</button>
+  <button id="btn-clear">全消去</button>
   <button id="btn-copy">自分の入力をコピー</button>
   <button id="btn-copy-peer" disabled>相手の入力をコピー</button>
   
@@ -219,6 +221,11 @@
       <option value="empty-line">空行を挿入 (\n\n)</option>
       <option value="comma">カンマ[,]挿入 + \n</option>
     </select>
+  </div>
+
+  <div class="setting-wrap" id="wrap-confirm">
+    <input type="checkbox" id="chk-confirm" checked>
+    <label for="chk-confirm" style="cursor:pointer;">消去時に確認</label>
   </div>
 
   <div class="setting-wrap" id="wrap-decoder">
@@ -295,10 +302,14 @@
   const btnApplyAnswer = document.getElementById('btn-apply-answer');
   const statusBox = document.getElementById('status');
   
+  const backspaceBtn = document.getElementById('btn-backspace');
   const newlineBtn = document.getElementById('btn-newline');
+  const clearBtn = document.getElementById('btn-clear');
   const copyBtn = document.getElementById('btn-copy');
   const copyPeerBtn = document.getElementById('btn-copy-peer');
   
+  const chkConfirm = document.getElementById('chk-confirm');
+  const wrapConfirm = document.getElementById('wrap-confirm');
   const chkAutowrap = document.getElementById('chk-autowrap');
   const numWrapcount = document.getElementById('num-wrapcount');
   const selWrapcode = document.getElementById('sel-wrapcode');
@@ -318,6 +329,7 @@
   let channel = null;
 
   const STORAGE_KEY_BITS = 'binaryPad.myBits';
+  const STORAGE_KEY_CONFIRM = 'binaryPad.needConfirm';
   const STORAGE_KEY_AUTOWRAP_ON = 'binaryPad.autoWrapOn';
   const STORAGE_KEY_AUTOWRAP_VAL = 'binaryPad.autoWrapVal';
   const STORAGE_KEY_AUTOWRAP_CODE = 'binaryPad.autoWrapCode';
@@ -329,6 +341,10 @@
   restoreSettings();
   renderMyPane();
   renderPeerPane();
+
+  // 設定のイベントリスナー
+  chkConfirm.addEventListener('change', () => localStorage.setItem(STORAGE_KEY_CONFIRM, chkConfirm.checked ? '1' : '0'));
+  wrapConfirm.addEventListener('click', (e) => e.stopPropagation());
   
   chkAutowrap.addEventListener('change', () => localStorage.setItem(STORAGE_KEY_AUTOWRAP_ON, chkAutowrap.checked ? '1' : '0'));
   numWrapcount.addEventListener('input', () => {
@@ -368,18 +384,29 @@
     else if (event.key === 'ArrowRight') { event.preventDefault(); if (myCursorIdx < myBits.length) { myCursorIdx++; renderMyPane(); } }
     else if (event.key === 'ArrowUp') { event.preventDefault(); moveVertical(-1); }
     else if (event.key === 'ArrowDown') { event.preventDefault(); moveVertical(1); }
+    else if (event.key === 'Backspace') { event.preventDefault(); executeBackspace(); }
+    else if (event.key === 'Delete') { event.preventDefault(); executeDelete(); }
     else if (event.key === 'Enter') { event.preventDefault(); insertBit('\n'); }
   });
 
+  // マウスクリック時のメイン入力処理
   window.addEventListener('click', (event) => {
     if (isIgnoredElement(event.target)) return;
-    if (chkSwapClick.checked) { insertBit(0); } else { insertBit(1); }
+    if (chkSwapClick.checked) {
+      insertBit(0);
+    } else {
+      insertBit(1);
+    }
   });
 
   window.addEventListener('contextmenu', (event) => {
     if (isIgnoredElement(event.target)) return;
     event.preventDefault();
-    if (chkSwapClick.checked) { insertBit(1); } else { insertBit(0); }
+    if (chkSwapClick.checked) {
+      insertBit(1);
+    } else {
+      insertBit(0);
+    }
   });
 
   function isIgnoredElement(target) {
@@ -391,7 +418,13 @@
            target.tagName === 'TEXTAREA';
   }
 
+  backspaceBtn.addEventListener('click', (e) => { e.stopPropagation(); executeBackspace(); });
   newlineBtn.addEventListener('click', (e) => { e.stopPropagation(); insertBit('\n'); });
+  clearBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (chkConfirm.checked && !confirm('自分の入力をすべて消去しますか？')) return;
+    myBits = []; myCursorIdx = 0; saveBits(); renderMyPane(); broadcastState();
+  });
   copyBtn.addEventListener('click', async (e) => { e.stopPropagation(); if (myBits.length) await copyText(myBits.join(''), copyBtn, '✓ コピー済み'); });
   copyPeerBtn.addEventListener('click', async (e) => { e.stopPropagation(); if (peerBits.length) await copyText(peerBits.join(''), copyPeerBtn, '✓ 相手の入力をコピーした'); });
 
@@ -413,13 +446,14 @@
     saveBits(); renderMyPane(); broadcastState();
   }
 
+  function executeBackspace() { if (myCursorIdx === 0) return; myBits.splice(myCursorIdx - 1, 1); myCursorIdx--; saveBits(); renderMyPane(); broadcastState(); }
+  function executeDelete() { if (myCursorIdx === myBits.length) return; myBits.splice(myCursorIdx, 1); saveBits(); renderMyPane(); broadcastState(); }
   function getCurrentLineLength() {
     let len = 0;
     for (let i = myCursorIdx - 1; i >= 0; i--) { if (myBits[i] === '\n') break; if (myBits[i] === 0 || myBits[i] === 1) len++; }
     for (let i = myCursorIdx; i < myBits.length; i++) { if (myBits[i] === '\n') break; if (myBits[i] === 0 || myBits[i] === 1) len++; }
     return len;
   }
-  
   function moveVertical(direction) {
     const lines = myBits.join('').split('\n'); let accumulated = 0; let currentLineIdx = 0; let currentChIdx = 0;
     for (let i = 0; i < lines.length; i++) {
@@ -509,6 +543,7 @@
   function saveBits() { localStorage.setItem(STORAGE_KEY_BITS, myBits.join('')); }
   function restoreBits() { const saved = localStorage.getItem(STORAGE_KEY_BITS) || ''; myBits = saved.split(''); if (myBits.length === 1 && myBits[0] === '') myBits = []; myCursorIdx = myBits.length; }
   function restoreSettings() {
+    chkConfirm.checked = (localStorage.getItem(STORAGE_KEY_CONFIRM) !== '0');
     chkAutowrap.checked = (localStorage.getItem(STORAGE_KEY_AUTOWRAP_ON) === '1');
     numWrapcount.value = localStorage.getItem(STORAGE_KEY_AUTOWRAP_VAL) || '5';
     selWrapcode.value = localStorage.getItem(STORAGE_KEY_AUTOWRAP_CODE) || 'space';
@@ -546,7 +581,7 @@
         updateStatus('接続成功！安全に同期されています。');
         broadcastState();
       } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-        updateStatus('切断されました。再接続するにはコード交換をやり長してください。');
+        updateStatus('切断されました。再接続するにはコード交換をやり直してください。');
       }
     };
     return pc;
