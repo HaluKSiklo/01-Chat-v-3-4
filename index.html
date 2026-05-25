@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>01-Chat - Username Restored Edition</title>
+<title>01-Chat - Perfect & Secure WebRTC Edition</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
@@ -37,8 +37,16 @@
     padding: 12px;
     background: #fafafa;
     overflow: hidden;
+    transition: opacity 0.2s ease;
   }
   #my-pane { background: #fff; border-color: #ddd; }
+  
+  /* 未接続時の入力制限視覚エフェクト */
+  .pad-pane.disabled-overlay {
+    opacity: 0.6;
+    background: #fdfdfd;
+  }
+
   .pane-title { font-size: 11px; color: #888; margin-bottom: 8px; font-weight: bold; letter-spacing: 0.05em; }
   #my-pane .pane-title { color: #111; }
 
@@ -133,19 +141,9 @@
     cursor: default;
   }
   .setting-wrap input[type="checkbox"] { cursor: pointer; }
+  .setting-wrap input[type="text"] { width: 90px; padding: 3px 6px; font-family: inherit; font-size: 11px; border: 1px solid #ccc; border-radius: 2px; background: #fff; cursor: text; }
   .setting-wrap input[type="number"] { width: 42px; padding: 2px 4px; font-family: inherit; font-size: 11px; border: 1px solid #ccc; text-align: center; cursor: text; }
   .setting-wrap select { font-family: inherit; font-size: 11px; padding: 2px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
-
-  /* ユーザー名入力フィールド */
-  .username-input {
-    padding: 4px 8px;
-    font-family: inherit;
-    font-size: 11px;
-    border: 1px solid #ccc;
-    border-radius: 3px;
-    width: 100px;
-    cursor: text;
-  }
 
   #hint { font-size: 10px; color: #999; padding: 6px 16px; background: #f8f8f8; display: flex; flex-wrap: wrap; gap: 14px; letter-spacing: 0.03em; border-top: 1px solid #eee; }
 
@@ -193,22 +191,24 @@
     background: #fff;
     white-space: pre-wrap;
     line-height: 1.4;
-    color: #444;
+    color: #c0392b; /* 最初は未接続注意色 */
+    font-weight: bold;
   }
+  #status.connected { color: #27ae60; }
 </style>
 </head>
 <body>
 
 <div id="split-container">
-  <div id="my-pane" class="pad-pane">
-    <div class="pane-title" id="my-title">【自分】の入力エリア</div>
+  <div id="my-pane" class="pad-pane disabled-overlay">
+    <div class="pane-title" id="lbl-my-title">【自分】の入力エリア (未接続)</div>
     <div id="my-output" class="output empty"></div>
     <div id="my-decoded" class="decoded-text-area" style="display:none;"></div>
     <div id="my-conversions" class="conversions">dec: 0 &nbsp; hex: 0x0 &nbsp; bits: 0</div>
   </div>
   
-  <div id="peer-pane" class="pad-pane">
-    <div class="pane-title" id="peer-title">【相手】の同期エリア</div>
+  <div id="peer-pane" class="pad-pane disabled-overlay">
+    <div class="pane-title" id="lbl-peer-title">【相手】の同期エリア (未接続)</div>
     <div id="peer-output" class="output empty">（相手の入力待ち）</div>
     <div id="peer-decoded" class="decoded-text-area" style="display:none;"></div>
     <div id="peer-conversions" class="conversions">dec: 0 &nbsp; hex: 0x0 &nbsp; bits: 0</div>
@@ -218,13 +218,13 @@
 <div id="toolbar">
   <div class="setting-wrap" id="wrap-username">
     <label for="txt-username" style="font-weight:bold;">ユーザー名:</label>
-    <input type="text" id="txt-username" class="username-input" value="自分" maxlength="15">
+    <input type="text" id="txt-username" value="自分" maxlength="15">
   </div>
 
-  <button id="btn-backspace">削除 (BS)</button>
-  <button id="btn-newline">改行 (Enter)</button>
-  <button id="btn-clear">全消去</button>
-  <button id="btn-copy">自分の入力をコピー</button>
+  <button id="btn-backspace" disabled>削除 (BS)</button>
+  <button id="btn-newline" disabled>改行 (Enter)</button>
+  <button id="btn-clear" disabled>全消去</button>
+  <button id="btn-copy" disabled>自分の入力をコピー</button>
   <button id="btn-copy-peer" disabled>相手の入力をコピー</button>
   
   <div class="setting-wrap" id="wrap-autowrap">
@@ -256,7 +256,7 @@
 </div>
 
 <div id="hint">
-  <span id="hint-click-text">【画面の空白どこでも】 左クリック → 1挿入 / 右クリック → 0挿入</span>
+  <span id="hint-click-text">【画面の空白どこでも】 左クリック → 1挿入 / 右クリック → 0挿入 (※接続後に有効化)</span>
   <span>【キーボード】 0 や 1 キー → 数値挿入</span>
   <span>【カーソル移動】 ← → ↑ ↓ キー</span>
 </div>
@@ -280,7 +280,7 @@
       </div>
     </div>
   </div>
-  <div id="status">手動でのコピペ交換により、サーバーを介さず1対1の直接同期通信を確立できます。</div>
+  <div id="status">⚠️ 未接続：下の1〜3の手順に従ってコピペ交換を行い、WebRTC通信を確立してください。</div>
 </div>
 
 <script>
@@ -303,14 +303,16 @@
   };
 
   // ── DOM エレメント ───────────────────────────
+  const myPane = document.getElementById('my-pane');
+  const peerPane = document.getElementById('peer-pane');
   const myOutput = document.getElementById('my-output');
   const myDecoded = document.getElementById('my-decoded');
   const myConversions = document.getElementById('my-conversions');
   const peerOutput = document.getElementById('peer-output');
   const peerDecoded = document.getElementById('peer-decoded');
   const peerConversions = document.getElementById('peer-conversions');
-  const myTitle = document.getElementById('my-title');
-  const peerTitle = document.getElementById('peer-title');
+  const lblMyTitle = document.getElementById('lbl-my-title');
+  const lblPeerTitle = document.getElementById('lbl-peer-title');
 
   const txtLocalSdp = document.getElementById('txt-local-sdp');
   const txtRemoteSdp = document.getElementById('txt-remote-sdp');
@@ -344,24 +346,26 @@
   let myCursorIdx = 0;
   let peerBits = [];
   let peerName = "相手";
+  let isConnected = false; // 【安全機構】接続フラグ
 
   let peer = null;
   let channel = null;
 
   const STORAGE_KEY_BITS = 'binaryPad.myBits';
-  const STORAGE_KEY_USERNAME = 'binaryPad.username';
   const STORAGE_KEY_CONFIRM = 'binaryPad.needConfirm';
   const STORAGE_KEY_AUTOWRAP_ON = 'binaryPad.autoWrapOn';
   const STORAGE_KEY_AUTOWRAP_VAL = 'binaryPad.autoWrapVal';
   const STORAGE_KEY_AUTOWRAP_CODE = 'binaryPad.autoWrapCode';
   const STORAGE_KEY_DECODER_ON = 'binaryPad.decoderOn';
   const STORAGE_KEY_SWAP_CLICK = 'binaryPad.swapClick';
+  const STORAGE_KEY_USERNAME = 'binaryPad.username';
 
   // ── 初期化 ───────────────────────────────────
   restoreBits();
   restoreSettings();
   renderMyPane();
   renderPeerPane();
+  setControlState(false); // 初期は入力制限
 
   // 設定のイベントリスナー
   txtUsername.addEventListener('input', () => {
@@ -405,9 +409,36 @@
   txtRemoteSdp.addEventListener('keydown', (e) => e.stopPropagation());
   txtRemoteSdp.addEventListener('click', (e) => e.stopPropagation());
 
+  // ── 安全制御（接続状態に応じたUIの切り替え） ──
+  function setControlState(connected) {
+    isConnected = connected;
+    if (connected) {
+      myPane.classList.remove('disabled-overlay');
+      peerPane.classList.remove('disabled-overlay');
+      backspaceBtn.disabled = false;
+      newlineBtn.disabled = false;
+      clearBtn.disabled = false;
+      copyBtn.disabled = false;
+      statusBox.classList.add('connected');
+    } else {
+      myPane.classList.add('disabled-overlay');
+      peerPane.classList.add('disabled-overlay');
+      backspaceBtn.disabled = true;
+      newlineBtn.disabled = true;
+      clearBtn.disabled = true;
+      copyBtn.disabled = true;
+      copyPeerBtn.disabled = true;
+      statusBox.classList.remove('connected');
+    }
+    updateHintText();
+    updatePaneTitles();
+  }
+
   // ── キーボード・クリック処理 ─────────────────
   window.addEventListener('keydown', (event) => {
+    if (!isConnected) return; // 【安全機構】未接続ならキーボード入力を弾く
     if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA' || event.target.tagName === 'SELECT') return;
+    
     if (event.key === '0') { event.preventDefault(); insertBit(0); }
     else if (event.key === '1') { event.preventDefault(); insertBit(1); }
     else if (event.key === 'ArrowLeft') { event.preventDefault(); if (myCursorIdx > 0) { myCursorIdx--; renderMyPane(); } }
@@ -420,22 +451,15 @@
   });
 
   window.addEventListener('click', (event) => {
-    if (isIgnoredElement(event.target)) return;
-    if (chkSwapClick.checked) {
-      insertBit(0);
-    } else {
-      insertBit(1);
-    }
+    if (!isConnected || isIgnoredElement(event.target)) return; // 【安全機構】未接続なら無視
+    if (chkSwapClick.checked) { insertBit(0); } else { insertBit(1); }
   });
 
   window.addEventListener('contextmenu', (event) => {
     if (isIgnoredElement(event.target)) return;
     event.preventDefault();
-    if (chkSwapClick.checked) {
-      insertBit(1);
-    } else {
-      insertBit(0);
-    }
+    if (!isConnected) return; // 【安全機構】未接続なら無視
+    if (chkSwapClick.checked) { insertBit(1); } else { insertBit(0); }
   });
 
   function isIgnoredElement(target) {
@@ -508,11 +532,7 @@
       if (chunk === "11111") { isNumMode = true; continue; }
       if (chunk === "11110") { isNumMode = false; continue; }
 
-      if (isNumMode) {
-        decodedText += (CODE_MAP_NUM[chunk] || "🔲");
-      } else {
-        decodedText += (CODE_MAP_ALPHA[chunk] || "🔲");
-      }
+      if (isNumMode) { decodedText += (CODE_MAP_NUM[chunk] || "🔲"); } else { decodedText += (CODE_MAP_ALPHA[chunk] || "🔲"); }
     }
     return decodedText;
   }
@@ -528,6 +548,10 @@
   }
 
   function updateHintText() {
+    if (!isConnected) {
+      hintClickText.textContent = "❌ 未接続：左右クリックによる入力は制限されています。先に通信を確立してください。";
+      return;
+    }
     if (chkSwapClick.checked) {
       hintClickText.textContent = "【画面の空白どこでも】 左クリック → 0挿入 / 右クリック → 1挿入 (反転中)";
     } else {
@@ -537,8 +561,9 @@
 
   function updatePaneTitles() {
     const name = txtUsername.value.trim() || "自分";
-    myTitle.textContent = `【自分（${name}）】の入力エリア`;
-    peerTitle.textContent = `【相手（${peerName}）】の同期エリア`;
+    const statusText = isConnected ? "" : " (未接続)";
+    lblMyTitle.textContent = `【${name}】の入力エリア${statusText}`;
+    lblPeerTitle.textContent = `【${peerName}】の同期エリア${statusText}`;
   }
 
   // ── 描画 ─────────────────────────────────────
@@ -559,8 +584,15 @@
   
   function renderPeerPane() {
     peerOutput.innerHTML = '';
-    if (peerBits.length === 0) { peerOutput.classList.add('empty'); peerOutput.textContent = '（相手の入力待ち）'; copyPeerBtn.disabled = true; }
-    else { peerOutput.classList.remove('empty'); peerOutput.textContent = peerBits.join(''); copyPeerBtn.disabled = false; }
+    if (peerBits.length === 0) {
+      peerOutput.classList.add('empty');
+      peerOutput.textContent = isConnected ? `（${peerName}の入力待ち）` : "（未接続：同期待ち）";
+      copyPeerBtn.disabled = true;
+    } else {
+      peerOutput.classList.remove('empty');
+      peerOutput.textContent = peerBits.join('');
+      copyPeerBtn.disabled = !isConnected;
+    }
     updateConversions(peerBits, peerConversions);
     if (chkDecoder.checked) peerDecoded.textContent = "【翻訳】: " + decode5BitBinary(peerBits);
     peerOutput.scrollTop = peerOutput.scrollHeight;
@@ -586,12 +618,10 @@
     chkDecoder.checked = (localStorage.getItem(STORAGE_KEY_DECODER_ON) === '1');
     chkSwapClick.checked = (localStorage.getItem(STORAGE_KEY_SWAP_CLICK) === '1');
     toggleDecoderVisibility();
-    updateHintText();
-    updatePaneTitles();
   }
 
   // ── 手動コピペ式 WebRTC ロジック ─────────────────
-  function updateStatus(msg) {
+  function updateStatus(msg, isError = false) {
     const state = peer ? `[WebRTC: ${peer.connectionState}]` : '[未接続]';
     statusBox.textContent = `${msg} ${state}`;
   }
@@ -604,7 +634,7 @@
     pc.onicecandidate = (e) => {
       if (!e.candidate) {
         txtLocalSdp.value = btoa(JSON.stringify(pc.localDescription));
-        updateStatus('シグナリングコードの生成が完了しました！コピーして相手に渡してください。');
+        updateStatus('🔑 1. シグナリングコードの生成が完了！コピーして相手に渡してください。');
       }
     };
 
@@ -615,10 +645,11 @@
 
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'connected') {
-        updateStatus('接続成功！安全に同期されています。');
-        broadcastState();
+        updateStatus('✨ 接続成功！安全なP2P通信経路が確立されました。');
+        setControlState(true); // UI入力を解放
       } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-        updateStatus('切断されました。再接続するにはコード交換をやり直してください。');
+        updateStatus('❌ 通信が切断されました。再接続するにはコード交換をやり直してください。');
+        setControlState(false); // UI入力をロック
       }
     };
     return pc;
@@ -649,7 +680,7 @@
       await pc.setLocalDescription(answer);
       
       txtLocalSdp.value = btoa(JSON.stringify(pc.localDescription));
-      updateStatus('アンサーを生成しました！左側のコードをコピーして相手に送り返してください。');
+      updateStatus('🔑 2. アンサーを生成しました！左側のコードをコピーして相手に送り返してください。');
     } catch (err) { alert('オファー適用失敗。コードが不完全な可能性があります。'); }
   }
 
@@ -665,22 +696,26 @@
   }
 
   function attachChannel(dc) {
-    dc.onopen = () => { broadcastState(); };
+    // 【重要修正】接続直後は土管が完全に安定するまで「0.5秒」待ってから初期送信
+    dc.onopen = () => {
+      setTimeout(() => {
+        broadcastState();
+      }, 500);
+    };
+
     dc.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data);
-        if (message.type === 'state' && typeof message.bits === 'string') {
-          peerBits = message.bits.split('');
-          if (peerBits.length === 1 && peerBits[0] === '') peerBits = [];
-          
-          if (message.name) {
-            peerName = message.name;
-          } else {
-            peerName = "相手";
+        if (message.type === 'state') {
+          if (typeof message.username === 'string' && message.username.trim() !== "") {
+            peerName = message.username;
+            updatePaneTitles();
           }
-          
-          updatePaneTitles();
-          renderPeerPane();
+          if (typeof message.bits === 'string') {
+            peerBits = message.bits.split('');
+            if (peerBits.length === 1 && peerBits[0] === '') peerBits = [];
+            renderPeerPane();
+          }
         }
       } catch (error) { console.warn('P2Pデータ解析エラー:', error); }
     };
@@ -688,11 +723,11 @@
 
   function broadcastState() {
     if (channel && channel.readyState === 'open') {
-      const name = txtUsername.value.trim() || "自分";
+      const uName = txtUsername.value.trim() || "自分";
       channel.send(JSON.stringify({
         type: 'state',
-        bits: myBits.join(''),
-        name: name
+        username: uName,
+        bits: myBits.join('')
       }));
     }
   }
